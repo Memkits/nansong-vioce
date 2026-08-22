@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import OpenCC from 'opencc-js/cn2t';
 import { candidatesFor, confidenceLabel, isHan, prosodyOf, readingFor, type ProfileId, type Reading } from './lib/phonology';
 
 const sampleText = '春眠不覺曉，處處聞啼鳥。夜來風雨聲，花落知多少。';
+const toTraditional = OpenCC.Converter({ from: 'cn', to: 't' });
 const profiles = {
   linan: { name: '臨安行都', subtitle: '共同語擬音 · 1127–1279', note: '以切韻系音韻地位為底座，加入宋代通語與行都語音的審慎推斷。' },
   jinhua: { name: '婺州／金華', subtitle: '地方讀音擬音 · 1127–1279', note: '以婺州地方證據約束的候選方案；與臨安差異均標示為推斷，不視為定論。' },
@@ -62,15 +64,16 @@ export default function Home() {
   const [showAlternatives, setShowAlternatives] = useState(false);
   const audioContext = useRef<AudioContext | null>(null);
   const stopRef = useRef(false);
+  const analysisText = useMemo(() => toTraditional(text), [text]);
   const readings = useMemo(
-    () => Array.from(text).filter(isHan).map((character, index) => readingFor(character, profile, overrides[index] ?? 0)),
-    [text, profile, overrides],
+    () => Array.from(analysisText).filter(isHan).map((character, index) => readingFor(character, profile, overrides[index] ?? 0)),
+    [analysisText, profile, overrides],
   );
   const active = readings[selected] ?? readings[0];
   const alternatives = active ? candidatesFor(active.character, profile) : [];
   const covered = readings.filter((reading) => reading.confidence !== 'D').length;
   const sentenceData = useMemo(() => {
-    const chunks = text.match(/[^，、。！？；]+[，、。！？；]?/gu) ?? [];
+    const chunks = analysisText.match(/[^，、。！？；]+[，、。！？；]?/gu) ?? [];
     let cursor = 0;
     return chunks.map((chunk) => {
       const count = Array.from(chunk).filter(isHan).length;
@@ -79,7 +82,7 @@ export default function Home() {
       const ending = readings[cursor - 1];
       return { chunk, start, end: cursor - 1, ending, prosody: ending ? prosodyOf(ending) : null };
     });
-  }, [text, readings]);
+  }, [analysisText, readings]);
   const rhymeFinals = useMemo(() => new Set(sentenceData.map((sentence) => sentence.end).filter((index) => index >= 0)), [sentenceData]);
   const durationFor = (reading: Reading, index: number) => {
     const basic = reading.tone === 4 ? 0.26 / rate : 0.42 / rate;
@@ -122,7 +125,7 @@ export default function Home() {
     window.speechSynthesis.cancel(); window.speechSynthesis.speak(utterance);
   }
   function downloadAnnotation() {
-    const payload = { system: '南宋吴地拟音古文朗读系统', profile: profiles[profile], dataVersion: '0.1.0-prototype', createdAt: new Date().toISOString(), sourceText: text, readings };
+    const payload = { system: '南宋吴地拟音古文朗读系统', profile: profiles[profile], dataVersion: '0.3.0-prototype', createdAt: new Date().toISOString(), sourceText: text, analysisText, readings, sentenceData, emphasizeRhyme };
     const href = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
     const anchor = document.createElement('a'); anchor.href = href; anchor.download = 'nansong-phonology-annotation.json'; anchor.click(); URL.revokeObjectURL(href);
   }
@@ -147,7 +150,7 @@ export default function Home() {
     <header className="topbar"><a className="brand" href="#top" aria-label="南宋吴地拟音首页"><span>宋</span><b>南宋声景</b></a><div className="topbar-note">研究性拟音 · 数据版 0.1</div><button className="text-button" onClick={downloadAnnotation}>导出注释</button></header>
     <section className="hero" id="top"><div><p className="eyebrow">SOUNDING SOUTHERN SONG</p><h1>让古文以一套<br /><em>可说明来处</em>的声音被听见。</h1><p className="hero-copy">不是“唯一古音”，而是可追溯、可比较、可修订的南宋吴地朗读方案。</p></div><aside className="principle-card"><span className="card-kicker">当前方案</span><strong>{profiles[profile].name}</strong><p>{profiles[profile].note}</p><div><span className="dot" />每一个判断均标注证据等级</div></aside></section>
     <section className="workspace" aria-label="古文拟音工作台"><div className="controls-column"><div className="section-heading"><span>01</span><h2>选择声景</h2></div><div className="profile-switch" role="radiogroup" aria-label="选择拟音方案">{(Object.keys(profiles) as ProfileId[]).map((id) => <button key={id} className={profile === id ? 'profile active' : 'profile'} onClick={() => setProfile(id)} role="radio" aria-checked={profile === id}><b>{profiles[id].name}</b><small>{profiles[id].subtitle}</small></button>)}</div><div className="method-note"><b>方案说明</b><p>“临安”侧重行都的共同语语境；“金华”是地方证据约束下的候选读法。差异不等同于已经证实的口语事实。</p></div></div>
-      <div className="input-column"><div className="section-heading"><span>02</span><h2>粘贴古文</h2><small>{text.length} 字符</small></div><textarea value={text} onChange={(event) => { setText(event.target.value); setOverrides({}); }} aria-label="古文文本输入" placeholder="在这里粘贴古文、诗词或词作…" /><div className="input-footer"><button className="sample-button" onClick={() => { setText(sampleText); setOverrides({}); }}>载入《春晓》示例</button><span>《廣韻》可查字以规则推导；未录字标为待考</span></div></div></section>
+      <div className="input-column"><div className="section-heading"><span>02</span><h2>粘贴古文</h2><small>{text.length} 字符</small></div><textarea value={text} onChange={(event) => { setText(event.target.value); setOverrides({}); }} aria-label="古文文本输入" placeholder="在这里粘贴古文、诗词或词作…" /><div className="input-footer"><button className="sample-button" onClick={() => { setText(sampleText); setOverrides({}); }}>载入《春晓》示例</button><span>{analysisText === text ? '《廣韻》可查字以规则推导；未录字标为待考' : '已在本地转为繁体字形后查《廣韻》；原文保持不变'}</span></div></div></section>
     <section className="analysis-section"><div className="analysis-header"><div><p className="eyebrow">PHONOLOGICAL TRACE</p><h2>逐字拟音</h2></div><div className="coverage"><b>{covered}<small> / {readings.length}</small></b><span>已具可审查读音</span></div></div><div className="token-grid">{readings.length === 0 ? <p className="empty-state">请输入至少一个汉字以开始分析。</p> : readings.map((reading, index) => <button className={selected === index ? `token confidence-${reading.confidence} selected` : `token confidence-${reading.confidence}`} onClick={() => setSelected(index)} key={`${reading.character}-${index}`}><b>{reading.character}</b><span>{reading.ipa}</span><i>{reading.confidence}</i></button>)}</div>
       {active && <article className="evidence-panel"><div className="character-mark">{active.character}</div><div><span className={`confidence-badge confidence-${active.confidence}`}>{active.confidence} · {confidenceLabel[active.confidence]}</span><h3>{active.position}</h3><p><b>释义：</b>{active.meaning}　<b>拟音：</b><code>{active.ipa}</code></p><p className="evidence"><b>依据：</b>{active.evidence}</p>{showAlternatives && <div className="alternative-list">{alternatives.map((candidate, index) => <button key={`${candidate.position}-${index}`} className={candidate.position === active.position ? 'chosen' : ''} onClick={() => { setOverrides((current) => ({ ...current, [selected]: index })); setShowAlternatives(false); }}><b>{candidate.position}</b><code>{candidate.ipa}</code><span>{candidate.meaning}</span></button>)}</div>}</div><button className="change-reading" onClick={() => setShowAlternatives((open) => !open)}>{showAlternatives ? '收起候选' : `选择替代读法${alternatives.length > 1 ? `（${alternatives.length}）` : ''}`}</button></article>}</section>
     <section className="prosody-section"><div className="prosody-heading"><div><p className="eyebrow">RHYME & CADENCE</p><h2>断句与韵脚</h2></div><p>按输入中的逗号、顿号、分号与句末标点切分。平仄和韵部取当前逐字读音；它们用于朗读提示，不代替作品格律校勘。</p></div><div className="sentence-grid">{sentenceData.map((sentence, index) => <button key={`${sentence.chunk}-${index}`} className={selected === sentence.end ? 'sentence-card active' : 'sentence-card'} onClick={() => setSelected(sentence.end)}><span>第 {index + 1} 句</span><b>{sentence.chunk}</b><div><code>{sentence.ending?.character ?? '—'} · {sentence.prosody?.rhyme ? `${sentence.prosody.rhyme}韻` : '待考'}</code><i>{sentence.prosody?.level ?? '？'} · {sentence.prosody?.category ?? '待考'}{sentence.prosody?.entering ? ' · 入聲' : ''}</i></div></button>)}</div></section>
