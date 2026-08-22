@@ -33,4 +33,5 @@ button, textarea, input { font: inherit; } button { cursor: pointer; }
 .sentence-card div { display: flex; align-items: end; justify-content: space-between; gap: 6px; margin-top: 14px; }
 .sentence-card code { color: var(--jade); font-size: 10px; }.sentence-card i { color: #80604c; font-size: 10px; font-style: normal; white-space: nowrap; }
 .rhyme-toggle { display: block; padding: 0 0 22px; color: #d8cfc0; font-size: 12px; }.rhyme-toggle input { margin: 0 8px 0 0; accent-color: #d39b47; }.rhyme-toggle small { color: #91897e; margin-left: 8px; font-size: 10px; }
+.voice-picker { display: block; padding: 21px 0 0; color: #d8cfc0; font-size: 12px; }.voice-picker select { display: block; width: 100%; margin-top: 9px; padding: 8px; color: #f2eadc; background: #393631; border: 1px solid #71695e; }.voice-picker small { display: block; margin-top: 7px; color: #91897e; font-size: 10px; }
 @media (max-width: 780px) { .prosody-section { padding-bottom: 50px; }.prosody-heading { display: block; }.prosody-heading > p { margin-top: 14px; }.sentence-grid { grid-template-columns: 1fr 1fr; } }
