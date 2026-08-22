@@ -32,11 +32,11 @@ jobs:
       - name: Type-check
         run: npx tsc --noEmit
 
-      - name: Build Vinext application
+      - name: Build static CDN bundle
         run: npm run build
 
-      # This preserves the deployment target and organisation secret supplied by
-      # the copied workflow. Vinext emits the deployable artifact to dist/.
+      # Vite emits a self-contained static SPA to dist/. The CDN needs no Node,
+      # Vinext, Worker, MLX, model, or other server runtime to serve it.
       - name: Deploy to server
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         id: deploy

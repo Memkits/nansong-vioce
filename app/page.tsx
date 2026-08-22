@@ -1,5 +1,3 @@
-'use client';
-
 import { useEffect, useMemo, useRef, useState } from 'react';
 import OpenCC from 'opencc-js/cn2t';
 import { candidatesFor, isHan, prosodyOf, readingsFor, type ProfileId, type Reading } from './lib/phonology';
