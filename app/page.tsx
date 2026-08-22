@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import OpenCC from 'opencc-js/cn2t';
-import { candidatesFor, confidenceLabel, isHan, prosodyOf, readingFor, type ProfileId, type Reading } from './lib/phonology';
+import { candidatesFor, isHan, prosodyOf, readingsFor, type ProfileId, type Reading } from './lib/phonology';
+import { RESEARCH_SAMPLE_RATE, renderResearchVoice, waveBlob } from './lib/synth';
 
 const sampleText = '春眠不覺曉，處處聞啼鳥。夜來風雨聲，花落知多少。';
 const toTraditional = OpenCC.Converter({ from: 'cn', to: 't' });
@@ -10,45 +11,6 @@ const profiles = {
   linan: { name: '臨安行都', subtitle: '共同語擬音 · 1127–1279', note: '以切韻系音韻地位為底座，加入宋代通語與行都語音的審慎推斷。' },
   jinhua: { name: '婺州／金華', subtitle: '地方讀音擬音 · 1127–1279', note: '以婺州地方證據約束的候選方案；與臨安差異均標示為推斷，不視為定論。' },
 } as const;
-const vowelFormants: Record<string, [number, number, number]> = { i: [280, 2250, 3100], e: [390, 2050, 2850], ɛ: [610, 1840, 2600], a: [850, 1350, 2500], ɑ: [720, 1100, 2400], ɒ: [550, 920, 2400], u: [330, 760, 2200], ɨ: [350, 1550, 2450], o: [470, 900, 2450] };
-
-function scheduleResearchSyllable(context: BaseAudioContext, reading: Reading, start: number, duration: number) {
-  const vowel = Array.from(reading.ipa).reverse().find((symbol) => vowelFormants[symbol]) ?? 'a';
-  const [f1, f2, f3] = vowelFormants[vowel];
-  const source = context.createOscillator();
-  const gain = context.createGain();
-  source.type = 'sawtooth';
-  source.frequency.setValueAtTime(205, start);
-  const targetPitch = reading.tone === 2 ? 232 : reading.tone === 3 ? 180 : reading.tone === 4 ? 165 : 208;
-  source.frequency.exponentialRampToValueAtTime(targetPitch, start + duration);
-  gain.gain.setValueAtTime(0.0001, start);
-  gain.gain.exponentialRampToValueAtTime(0.06, start + 0.035);
-  gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
-  source.connect(gain);
-  [f1, f2, f3].forEach((frequency, formantIndex) => {
-    const filter = context.createBiquadFilter();
-    filter.type = 'bandpass';
-    filter.frequency.value = frequency;
-    filter.Q.value = formantIndex === 0 ? 5 : 10;
-    gain.connect(filter);
-    filter.connect(context.destination);
-  });
-  source.start(start);
-  source.stop(start + duration);
-}
-
-function waveBlob(buffer: AudioBuffer) {
-  const samples = buffer.getChannelData(0);
-  const wav = new ArrayBuffer(44 + samples.length * 2);
-  const view = new DataView(wav);
-  const write = (offset: number, value: string) => Array.from(value).forEach((character, index) => view.setUint8(offset + index, character.charCodeAt(0)));
-  write(0, 'RIFF'); view.setUint32(4, 36 + samples.length * 2, true); write(8, 'WAVE'); write(12, 'fmt ');
-  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true); view.setUint32(24, buffer.sampleRate, true);
-  view.setUint32(28, buffer.sampleRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true); write(36, 'data'); view.setUint32(40, samples.length * 2, true);
-  samples.forEach((sample, index) => view.setInt16(44 + index * 2, Math.max(-1, Math.min(1, sample)) * 0x7fff, true));
-  return new Blob([wav], { type: 'audio/wav' });
-}
-
 export default function Home() {
   const [text, setText] = useState(sampleText);
   const [profile, setProfile] = useState<ProfileId>('linan');
@@ -63,33 +25,42 @@ export default function Home() {
   const [overrides, setOverrides] = useState<Record<number, number>>({});
   const [showAlternatives, setShowAlternatives] = useState(false);
   const audioContext = useRef<AudioContext | null>(null);
+  const audioSource = useRef<AudioBufferSourceNode | null>(null);
   const stopRef = useRef(false);
   const analysisText = useMemo(() => toTraditional(text), [text]);
-  const readings = useMemo(
-    () => Array.from(analysisText).filter(isHan).map((character, index) => readingFor(character, profile, overrides[index] ?? 0)),
-    [analysisText, profile, overrides],
-  );
-  const active = readings[selected] ?? readings[0];
+  const readings = useMemo(() => readingsFor(analysisText, profile, overrides), [analysisText, profile, overrides]);
+  const selectedIndex = Math.min(selected, Math.max(readings.length - 1, 0));
+  const active = readings[selectedIndex] ?? readings[0];
   const alternatives = active ? candidatesFor(active.character, profile) : [];
   const covered = readings.filter((reading) => reading.confidence !== 'D').length;
   const sentenceData = useMemo(() => {
     const chunks = analysisText.match(/[^，、。！？；]+[，、。！？；]?/gu) ?? [];
-    let cursor = 0;
-    return chunks.map((chunk) => {
+    return chunks.reduce<{ cursor: number; sentences: Array<{ chunk: string; start: number; end: number; ending: Reading | undefined; prosody: ReturnType<typeof prosodyOf> | null }> }>((result, chunk) => {
       const count = Array.from(chunk).filter(isHan).length;
-      const start = cursor;
-      cursor += count;
-      const ending = readings[cursor - 1];
-      return { chunk, start, end: cursor - 1, ending, prosody: ending ? prosodyOf(ending) : null };
-    });
+      const end = result.cursor + count;
+      const ending = readings[end - 1];
+      return {
+        cursor: end,
+        sentences: [...result.sentences, { chunk, start: result.cursor, end: end - 1, ending, prosody: ending ? prosodyOf(ending) : null }],
+      };
+    }, { cursor: 0, sentences: [] }).sentences;
   }, [analysisText, readings]);
   const rhymeFinals = useMemo(() => new Set(sentenceData.map((sentence) => sentence.end).filter((index) => index >= 0)), [sentenceData]);
+  const dominantRhyme = useMemo(() => {
+    const counts = new Map<string, number>();
+    sentenceData.forEach((sentence) => {
+      const rhyme = sentence.prosody?.pingshui;
+      if (rhyme) counts.set(rhyme, (counts.get(rhyme) ?? 0) + 1);
+    });
+    const winner = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0];
+    return winner && winner[1] > 1 ? winner[0] : null;
+  }, [sentenceData]);
   const durationFor = (reading: Reading, index: number) => {
     const basic = reading.tone === 4 ? 0.26 / rate : 0.42 / rate;
     return emphasizeRhyme && rhymeFinals.has(index) ? basic * 1.24 : basic;
   };
+  const gapFor = (index: number) => rhymeFinals.has(index) ? pause : 24;
 
-  useEffect(() => { setSelected((current) => Math.min(current, Math.max(readings.length - 1, 0))); }, [readings.length]);
   useEffect(() => () => window.speechSynthesis.cancel(), []);
   useEffect(() => {
     const loadVoices = () => {
@@ -102,20 +73,19 @@ export default function Home() {
     return () => window.speechSynthesis.removeEventListener('voiceschanged', loadVoices);
   }, []);
   function stop() {
-    stopRef.current = true; window.speechSynthesis.cancel(); audioContext.current?.close(); audioContext.current = null; setIsPlaying(false);
+    stopRef.current = true; window.speechSynthesis.cancel(); audioSource.current?.stop(); audioSource.current = null; audioContext.current?.close(); audioContext.current = null; setIsPlaying(false);
   }
   async function playStudyVoice() {
-    const Context = window.AudioContext || window.webkitAudioContext;
+    stop();
+    const Context = window.AudioContext || (window as typeof window & { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const samples = renderResearchVoice(readings, durationFor, gapFor);
     const context = new Context(); audioContext.current = context; stopRef.current = false; setIsPlaying(true);
-    let cursor = context.currentTime + 0.08;
-    for (let index = 0; index < readings.length; index += 1) {
-      if (stopRef.current) break;
-      const reading = readings[index]; setSelected(index);
-      const duration = durationFor(reading, index);
-      scheduleResearchSyllable(context, reading, cursor, duration);
-      cursor += duration + pause / 1000;
-    }
-    window.setTimeout(() => { if (!stopRef.current) setIsPlaying(false); }, Math.max(0, (cursor - context.currentTime) * 1000 + 120));
+    const buffer = context.createBuffer(1, samples.length, RESEARCH_SAMPLE_RATE);
+    buffer.copyToChannel(samples, 0);
+    const source = context.createBufferSource(); audioSource.current = source;
+    source.buffer = buffer; source.connect(context.destination);
+    source.onended = () => { if (!stopRef.current) setIsPlaying(false); };
+    source.start();
   }
   function playSystemVoice() {
     stopRef.current = false; setIsPlaying(true);
@@ -125,21 +95,13 @@ export default function Home() {
     window.speechSynthesis.cancel(); window.speechSynthesis.speak(utterance);
   }
   function downloadAnnotation() {
-    const payload = { system: '南宋吴地拟音古文朗读系统', profile: profiles[profile], dataVersion: '0.3.0-prototype', createdAt: new Date().toISOString(), sourceText: text, analysisText, readings, sentenceData, emphasizeRhyme };
+    const payload = { system: '南宋吴地拟音古文朗读系统', profile: profiles[profile], dataVersion: '0.4.0-review', createdAt: new Date().toISOString(), sourceText: text, analysisText, readings, sentenceData, dominantRhyme, emphasizeRhyme, audio: { sampleRate: RESEARCH_SAMPLE_RATE, renderer: 'deterministic-bandlimited-v2' } };
     const href = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
     const anchor = document.createElement('a'); anchor.href = href; anchor.download = 'nansong-phonology-annotation.json'; anchor.click(); URL.revokeObjectURL(href);
   }
   async function downloadResearchAudio() {
-    const sampleRate = 44100;
-    const span = readings.reduce((total, reading, index) => total + durationFor(reading, index) + pause / 1000, 0) + 0.2;
-    const context = new OfflineAudioContext(1, Math.ceil(span * sampleRate), sampleRate);
-    let cursor = 0.06;
-    readings.forEach((reading, index) => {
-      const duration = durationFor(reading, index);
-      scheduleResearchSyllable(context, reading, cursor, duration);
-      cursor += duration + pause / 1000;
-    });
-    const href = URL.createObjectURL(waveBlob(await context.startRendering()));
+    const samples = renderResearchVoice(readings, durationFor, gapFor);
+    const href = URL.createObjectURL(waveBlob(samples));
     const anchor = document.createElement('a');
     anchor.href = href;
     anchor.download = `nansong-${profile}-research-voice.wav`;
@@ -147,14 +109,14 @@ export default function Home() {
     window.setTimeout(() => URL.revokeObjectURL(href), 500);
   }
   return <main className="site-shell">
-    <header className="topbar"><a className="brand" href="#top" aria-label="南宋吴地拟音首页"><span>宋</span><b>南宋声景</b></a><div className="topbar-note">研究性拟音 · 数据版 0.1</div><button className="text-button" onClick={downloadAnnotation}>导出注释</button></header>
+    <header className="topbar"><a className="brand" href="#top" aria-label="南宋吴地拟音首页"><span>宋</span><b>南宋声景</b></a><div className="topbar-note">研究性拟音 · 数据版 0.4</div><button className="text-button" onClick={downloadAnnotation}>导出注释</button></header>
     <section className="hero" id="top"><div><p className="eyebrow">SOUNDING SOUTHERN SONG</p><h1>让古文以一套<br /><em>可说明来处</em>的声音被听见。</h1><p className="hero-copy">不是“唯一古音”，而是可追溯、可比较、可修订的南宋吴地朗读方案。</p></div><aside className="principle-card"><span className="card-kicker">当前方案</span><strong>{profiles[profile].name}</strong><p>{profiles[profile].note}</p><div><span className="dot" />每一个判断均标注证据等级</div></aside></section>
     <section className="workspace" aria-label="古文拟音工作台"><div className="controls-column"><div className="section-heading"><span>01</span><h2>选择声景</h2></div><div className="profile-switch" role="radiogroup" aria-label="选择拟音方案">{(Object.keys(profiles) as ProfileId[]).map((id) => <button key={id} className={profile === id ? 'profile active' : 'profile'} onClick={() => setProfile(id)} role="radio" aria-checked={profile === id}><b>{profiles[id].name}</b><small>{profiles[id].subtitle}</small></button>)}</div><div className="method-note"><b>方案说明</b><p>“临安”侧重行都的共同语语境；“金华”是地方证据约束下的候选读法。差异不等同于已经证实的口语事实。</p></div></div>
       <div className="input-column"><div className="section-heading"><span>02</span><h2>粘贴古文</h2><small>{text.length} 字符</small></div><textarea value={text} onChange={(event) => { setText(event.target.value); setOverrides({}); }} aria-label="古文文本输入" placeholder="在这里粘贴古文、诗词或词作…" /><div className="input-footer"><button className="sample-button" onClick={() => { setText(sampleText); setOverrides({}); }}>载入《春晓》示例</button><span>{analysisText === text ? '《廣韻》可查字以规则推导；未录字标为待考' : '已在本地转为繁体字形后查《廣韻》；原文保持不变'}</span></div></div></section>
-    <section className="analysis-section"><div className="analysis-header"><div><p className="eyebrow">PHONOLOGICAL TRACE</p><h2>逐字拟音</h2></div><div className="coverage"><b>{covered}<small> / {readings.length}</small></b><span>已具可审查读音</span></div></div><div className="token-grid">{readings.length === 0 ? <p className="empty-state">请输入至少一个汉字以开始分析。</p> : readings.map((reading, index) => <button className={selected === index ? `token confidence-${reading.confidence} selected` : `token confidence-${reading.confidence}`} onClick={() => setSelected(index)} key={`${reading.character}-${index}`}><b>{reading.character}</b><span>{reading.ipa}</span><i>{reading.confidence}</i></button>)}</div>
-      {active && <article className="evidence-panel"><div className="character-mark">{active.character}</div><div><span className={`confidence-badge confidence-${active.confidence}`}>{active.confidence} · {confidenceLabel[active.confidence]}</span><h3>{active.position}</h3><p><b>释义：</b>{active.meaning}　<b>拟音：</b><code>{active.ipa}</code></p><p className="evidence"><b>依据：</b>{active.evidence}</p>{showAlternatives && <div className="alternative-list">{alternatives.map((candidate, index) => <button key={`${candidate.position}-${index}`} className={candidate.position === active.position ? 'chosen' : ''} onClick={() => { setOverrides((current) => ({ ...current, [selected]: index })); setShowAlternatives(false); }}><b>{candidate.position}</b><code>{candidate.ipa}</code><span>{candidate.meaning}</span></button>)}</div>}</div><button className="change-reading" onClick={() => setShowAlternatives((open) => !open)}>{showAlternatives ? '收起候选' : `选择替代读法${alternatives.length > 1 ? `（${alternatives.length}）` : ''}`}</button></article>}</section>
-    <section className="prosody-section"><div className="prosody-heading"><div><p className="eyebrow">RHYME & CADENCE</p><h2>断句与韵脚</h2></div><p>按输入中的逗号、顿号、分号与句末标点切分。平仄和韵部取当前逐字读音；它们用于朗读提示，不代替作品格律校勘。</p></div><div className="sentence-grid">{sentenceData.map((sentence, index) => <button key={`${sentence.chunk}-${index}`} className={selected === sentence.end ? 'sentence-card active' : 'sentence-card'} onClick={() => setSelected(sentence.end)}><span>第 {index + 1} 句</span><b>{sentence.chunk}</b><div><code>{sentence.ending?.character ?? '—'} · {sentence.prosody?.rhyme ? `${sentence.prosody.rhyme}韻` : '待考'}</code><i>{sentence.prosody?.level ?? '？'} · {sentence.prosody?.category ?? '待考'}{sentence.prosody?.entering ? ' · 入聲' : ''}</i></div></button>)}</div></section>
-    <section className="listen-section"><div><p className="eyebrow">LISTENING ROOM</p><h2>聆听这个方案</h2><p className="listen-copy">研究合成以目标 IPA 的元音共振峰、声调与入声时值产生教学声响；系统声线预听则用于连贯性参考，不能当作历史拟音本体。</p></div><div className="voice-panel"><div className="mode-tabs"><button onClick={() => setMode('study')} className={mode === 'study' ? 'active' : ''}>研究合成 <small>IPA 控制</small></button><button onClick={() => setMode('system')} className={mode === 'system' ? 'active' : ''}>设备声线 <small>流畅预听</small></button></div>{mode === 'system' && <label className="voice-picker">选择设备声线 <select value={voiceUri} onChange={(event) => setVoiceUri(event.target.value)} disabled={!voices.length}>{voices.length ? voices.map((voice) => <option value={voice.voiceURI} key={voice.voiceURI}>{voice.name} · {voice.lang}</option>) : <option>未检测到中文声线</option>}</select><small>请在设备提供的中文声线中选择女性声线。</small></label>}<div className="sliders"><label>语速 <output>{rate.toFixed(2)}×</output><input type="range" min="0.65" max="1.15" step="0.01" value={rate} onChange={(event) => setRate(Number(event.target.value))} /></label><label>句间停顿 <output>{pause}ms</output><input type="range" min="120" max="720" step="30" value={pause} onChange={(event) => setPause(Number(event.target.value))} /></label></div><label className="rhyme-toggle"><input type="checkbox" checked={emphasizeRhyme} onChange={(event) => setEmphasizeRhyme(event.target.checked)} />强化句末韵脚时值 <small>仅影响研究合成与 WAV</small></label><div className="player-row"><button className={isPlaying ? 'stop-button' : 'play-button'} onClick={isPlaying ? stop : mode === 'study' ? playStudyVoice : playSystemVoice}>{isPlaying ? '■ 停止' : '▶ 开始朗读'}</button>{mode === 'study' && <button className="export-audio" onClick={downloadResearchAudio}>下载 WAV</button>}<span>{mode === 'study' ? '女声音高 · IPA 元音与调型控制' : '朗读取决于你选择的设备声线'}</span></div></div></section>
+    <section className="analysis-section"><div className="analysis-header"><div><p className="eyebrow">PHONOLOGICAL TRACE</p><h2>逐字拟音</h2></div><div className="coverage"><b>{covered}<small> / {readings.length}</small></b><span>已具可审查读音</span></div></div><div className="token-grid">{readings.length === 0 ? <p className="empty-state">请输入至少一个汉字以开始分析。</p> : readings.map((reading, index) => <button className={selectedIndex === index ? `token confidence-${reading.confidence} selected` : `token confidence-${reading.confidence}`} onClick={() => setSelected(index)} key={`${reading.character}-${index}`}><b>{reading.character}</b><span>{reading.ipa}</span><i>{reading.confidence}</i></button>)}</div>
+      {active && <article className="evidence-panel"><div className="character-mark">{active.character}</div><div><div><span className={`confidence-badge confidence-${active.categoryConfidence}`}>{active.categoryConfidence} · 韻書地位</span> <span className={`confidence-badge confidence-${active.periodConfidence}`}>{active.periodConfidence} · 宋代橋接</span> <span className={`confidence-badge confidence-${active.regionalConfidence}`}>{active.regionalConfidence} · 地域音值</span></div><h3>{active.position}</h3><p><b>释义：</b>{active.meaning}　<b>拟音：</b><code>{active.ipa}</code>　<b>白一平转写：</b><code>{active.baxter}</code></p><p className="evidence"><b>依据：</b>{active.evidence}</p>{showAlternatives && <div className="alternative-list">{alternatives.map((candidate, index) => <button key={`${candidate.position}-${index}`} className={candidate.position === active.position ? 'chosen' : ''} onClick={() => { setOverrides((current) => ({ ...current, [selectedIndex]: index })); setShowAlternatives(false); }}><b>{candidate.position}</b><code>{candidate.ipa}</code><span>{candidate.meaning}</span></button>)}</div>}</div><button className="change-reading" onClick={() => setShowAlternatives((open) => !open)}>{showAlternatives ? '收起候选' : `选择替代读法${alternatives.length > 1 ? `（${alternatives.length}）` : ''}`}</button></article>}</section>
+    <section className="prosody-section"><div className="prosody-heading"><div><p className="eyebrow">RHYME & CADENCE</p><h2>断句与韵脚</h2></div><p>同时显示《廣韻》原始韻目与《禮部韻略》—平水 106 韻合并层。主韻只按本段句末多数项提示；换韵、词牌及作者实际用韵仍须人工校勘。</p></div><div className="sentence-grid">{sentenceData.map((sentence, index) => <button key={`${sentence.chunk}-${index}`} className={selectedIndex === sentence.end ? 'sentence-card active' : 'sentence-card'} onClick={() => setSelected(sentence.end)}><span>第 {index + 1} 句{dominantRhyme && sentence.prosody?.pingshui === dominantRhyme ? ' · 与主韵同部' : dominantRhyme ? ' · 异于主韵' : ''}</span><b>{sentence.chunk}</b><div><code>{sentence.ending?.character ?? '—'} · {sentence.prosody?.pingshui ?? '平水待考'}</code><i>《廣韻》{sentence.prosody?.sourceRhyme ?? '？'}韻 · {sentence.prosody?.level ?? '？'} · {sentence.prosody?.category ?? '待考'}{sentence.prosody?.entering ? ' · 入聲' : ''}</i></div></button>)}</div></section>
+    <section className="listen-section"><div><p className="eyebrow">LISTENING ROOM</p><h2>聆听这个方案</h2><p className="listen-copy">研究合成以 48 kHz 统一渲染，使用带限多谐波女声源、四组共振峰、声母噪声／塞音起始与平滑包络。它追求音素清晰，不添加情绪或表演语气。</p></div><div className="voice-panel"><div className="mode-tabs"><button onClick={() => setMode('study')} className={mode === 'study' ? 'active' : ''}>研究合成 <small>IPA 控制</small></button><button onClick={() => setMode('system')} className={mode === 'system' ? 'active' : ''}>设备声线 <small>流畅预听</small></button></div>{mode === 'system' && <label className="voice-picker">选择设备声线 <select value={voiceUri} onChange={(event) => setVoiceUri(event.target.value)} disabled={!voices.length}>{voices.length ? voices.map((voice) => <option value={voice.voiceURI} key={voice.voiceURI}>{voice.name} · {voice.lang}</option>) : <option>未检测到中文声线</option>}</select><small>请在设备提供的中文声线中选择女性声线。</small></label>}<div className="sliders"><label>语速 <output>{rate.toFixed(2)}×</output><input type="range" min="0.65" max="1.15" step="0.01" value={rate} onChange={(event) => setRate(Number(event.target.value))} /></label><label>句间停顿 <output>{pause}ms</output><input type="range" min="120" max="720" step="30" value={pause} onChange={(event) => setPause(Number(event.target.value))} /></label></div><label className="rhyme-toggle"><input type="checkbox" checked={emphasizeRhyme} onChange={(event) => setEmphasizeRhyme(event.target.checked)} />强化句末韵脚时值 <small>仅影响研究合成与 WAV</small></label><div className="player-row"><button className={isPlaying ? 'stop-button' : 'play-button'} onClick={isPlaying ? stop : mode === 'study' ? playStudyVoice : playSystemVoice}>{isPlaying ? '■ 停止' : '▶ 开始朗读'}</button>{mode === 'study' && <button className="export-audio" onClick={downloadResearchAudio}>下载 48 kHz WAV</button>}<span>{mode === 'study' ? '确定性女声源 · 带限合成 · 峰值与响度归一' : '朗读取决于你选择的设备声线'}</span></div></div></section>
     <footer><span>南宋声景 · 研究性拟音原型</span><span>请将听感与史实区分：声音的自然度不等于历史结论。</span></footer>
   </main>;
 }

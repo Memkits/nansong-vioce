@@ -1,4 +1,4 @@
-import { 資料 as qieyunData } from 'qieyun';
+import * as TshetUinhExamples from 'tshet-uinh-examples';
 
 export type ProfileId = 'linan' | 'jinhua';
 export type Confidence = 'A' | 'B' | 'C' | 'D';
@@ -6,116 +6,152 @@ export type Reading = {
   character: string;
   position: string;
   ipa: string;
+  baxter: string;
   meaning: string;
   evidence: string;
   confidence: Confidence;
+  categoryConfidence: Confidence;
+  periodConfidence: Confidence;
+  regionalConfidence: Confidence;
   tone: 1 | 2 | 3 | 4;
-  source: 'reviewed' | 'guangyun-derived' | 'unresolved';
+  source: 'song-derived' | 'unresolved';
+  sourceRhyme: string | null;
+  rime: string | null;
 };
 
-type SeedReading = Omit<Reading, 'source'>;
+type ToneCategory = '平' | '上' | '去' | '入';
+type RhymeFamily = { rimes: string; labels: Record<ToneCategory, string | null> };
 
-const reviewedReadings: Record<string, SeedReading> = {
-  春: { character: '春', position: '清三合真平', ipa: 'tɕʰwin', meaning: '春季', evidence: '《廣韻》諄韻；切韻系音韻地位', confidence: 'A', tone: 1 },
-  眠: { character: '眠', position: '明三開先平', ipa: 'miɛn', meaning: '睡眠', evidence: '《廣韻》先韻；宋代韻圖對照', confidence: 'A', tone: 1 },
-  不: { character: '不', position: '幫三合物入', ipa: 'pɨʔ', meaning: '否定詞', evidence: '《廣韻》物韻；入聲尾弱化為本方案假設', confidence: 'B', tone: 4 },
-  覺: { character: '覺', position: '見二開覺入', ipa: 'kjaʊʔ', meaning: '察覺', evidence: '《廣韻》覺韻；臨安方案採入聲短促處理', confidence: 'B', tone: 4 },
-  曉: { character: '曉', position: '曉四開篠上', ipa: 'xjɛʊ˧˩', meaning: '天明', evidence: '《廣韻》篠韻', confidence: 'A', tone: 3 },
-  處: { character: '處', position: '昌三開御去', ipa: 'tɕʰjo˥˩', meaning: '處所', evidence: '《廣韻》御韻；此處取去聲義', confidence: 'A', tone: 4 },
-  聞: { character: '聞', position: '微三合文平', ipa: 'mɨn', meaning: '聽聞', evidence: '《廣韻》文韻', confidence: 'A', tone: 1 },
-  啼: { character: '啼', position: '定四開齊平', ipa: 'dei', meaning: '鳥鳴', evidence: '《廣韻》齊韻；濁塞音實際音值有爭議', confidence: 'B', tone: 2 },
-  鳥: { character: '鳥', position: '端四開篠上', ipa: 'tew˧˩', meaning: '鳥類', evidence: '《廣韻》篠韻', confidence: 'A', tone: 3 },
-  夜: { character: '夜', position: '以三開麻去', ipa: 'jæ˥˩', meaning: '夜晚', evidence: '《廣韻》禡韻', confidence: 'A', tone: 4 },
-  來: { character: '來', position: '來一開咍平', ipa: 'lɒi', meaning: '到來', evidence: '《廣韻》咍韻', confidence: 'A', tone: 1 },
-  風: { character: '風', position: '幫三合東平', ipa: 'pjuŋ', meaning: '風聲', evidence: '《廣韻》東韻；詞義為名詞', confidence: 'A', tone: 1 },
-  雨: { character: '雨', position: '云三合遇上', ipa: 'ɨo˧˩', meaning: '雨水', evidence: '《廣韻》遇韻；此處取名詞上聲義', confidence: 'B', tone: 3 },
-  聲: { character: '聲', position: '書三開清平', ipa: 'ɕiɛŋ', meaning: '聲音', evidence: '《廣韻》清韻', confidence: 'A', tone: 1 },
-  花: { character: '花', position: '曉二合麻平', ipa: 'xwa', meaning: '花朵', evidence: '《廣韻》麻韻', confidence: 'A', tone: 1 },
-  落: { character: '落', position: '來一開鐸入', ipa: 'lɑʔ', meaning: '落下', evidence: '《廣韻》鐸韻；入聲尾弱化為本方案假設', confidence: 'B', tone: 4 },
-  知: { character: '知', position: '知三開支平', ipa: 'ʈʂi', meaning: '知道', evidence: '《廣韻》支韻；宋代知組演變存在地域差異', confidence: 'B', tone: 1 },
-  多: { character: '多', position: '端一開歌平', ipa: 'tɑ', meaning: '多寡', evidence: '《廣韻》歌韻', confidence: 'A', tone: 1 },
-  少: { character: '少', position: '書三開小上', ipa: 'ɕjɛʊ˧˩', meaning: '多少', evidence: '《廣韻》小韻；此處取上聲義', confidence: 'A', tone: 3 },
-};
-
-const initials: Record<string, string> = {
-  幫: 'p', 滂: 'pʰ', 並: 'b', 明: 'm', 端: 't', 透: 'tʰ', 定: 'd', 泥: 'n', 來: 'l',
-  知: 'ʈʂ', 徹: 'ʈʂʰ', 澄: 'ɖʐ', 孃: 'ɳ', 精: 'ts', 清: 'tsʰ', 從: 'dz', 心: 's', 邪: 'z',
-  莊: 'ʈʂ', 初: 'ʈʂʰ', 崇: 'ɖʐ', 生: 'ʂ', 俟: 'ʐ', 章: 'tɕ', 昌: 'tɕʰ', 常: 'dʑ', 書: 'ɕ',
-  船: 'ʑ', 日: 'ȵ', 見: 'k', 溪: 'kʰ', 羣: 'ɡ', 疑: 'ŋ', 影: 'ʔ', 曉: 'x', 匣: 'ɣ', 云: 'ɦ', 以: 'j',
-};
-const rimes: Record<string, string> = {
-  東: 'uŋ', 冬: 'uŋ', 鍾: 'yoŋ', 江: 'aŋ', 支: 'i', 脂: 'i', 之: 'ɨ', 微: 'ɨi',
-  魚: 'ɨ', 虞: 'y', 模: 'u', 齊: 'ei', 祭: 'iej', 泰: 'ai', 佳: 'ɛ', 皆: 'ɛi', 夬: 'ai', 灰: 'uei', 咍: 'əi', 廢: 'ɐi',
-  眞: 'in', 臻: 'in', 文: 'un', 欣: 'ɨn', 元: 'ɐn', 魂: 'uən', 痕: 'ən', 寒: 'an', 刪: 'æn', 山: 'æn', 先: 'en', 仙: 'ien',
-  蕭: 'eu', 宵: 'ieu', 肴: 'au', 豪: 'ɑu', 歌: 'ɑ', 麻: 'a', 陽: 'iaŋ', 唐: 'ɑŋ', 庚: 'æŋ', 耕: 'ɛŋ', 清: 'iɛŋ', 青: 'eŋ',
-  蒸: 'iŋ', 登: 'əŋ', 尤: 'iu', 侯: 'u', 幽: 'iəu', 侵: 'im', 覃: 'ɑm', 談: 'ɑm', 鹽: 'iɛm', 添: 'iɛm', 咸: 'æm', 銜: 'am', 嚴: 'iɐm', 凡: 'iɐm',
-};
-const enteringCoda: Record<string, string> = {
-  侵: 'p', 覃: 'p', 談: 'p', 鹽: 'p', 添: 'p', 咸: 'p', 銜: 'p', 嚴: 'p', 凡: 'p',
-  眞: 't', 臻: 't', 文: 't', 欣: 't', 元: 't', 魂: 't', 痕: 't', 寒: 't', 刪: 't', 山: 't', 先: 't', 仙: 't',
-  東: 'k', 冬: 'k', 鍾: 'k', 江: 'k', 陽: 'k', 唐: 'k', 庚: 'k', 耕: 'k', 清: 'k', 青: 'k', 蒸: 'k', 登: 'k',
-};
+// 《廣韻》韻類到平水 106 韻的合併層。它只回答「詩韻是否同部」，
+// 不用來倒推臨安或婺州的實際元音。
+const rhymeFamilies: RhymeFamily[] = [
+  { rimes: '東', labels: { 平: '上平一東', 上: '上聲一董', 去: '去聲一送', 入: '入聲一屋' } },
+  { rimes: '冬鍾', labels: { 平: '上平二冬', 上: '上聲二腫', 去: '去聲二宋', 入: '入聲二沃' } },
+  { rimes: '江', labels: { 平: '上平三江', 上: '上聲三講', 去: '去聲三絳', 入: '入聲三覺' } },
+  { rimes: '支脂之', labels: { 平: '上平四支', 上: '上聲四紙', 去: '去聲四寘', 入: null } },
+  { rimes: '微', labels: { 平: '上平五微', 上: '上聲五尾', 去: '去聲五未', 入: null } },
+  { rimes: '魚', labels: { 平: '上平六魚', 上: '上聲六語', 去: '去聲六御', 入: null } },
+  { rimes: '虞模', labels: { 平: '上平七虞', 上: '上聲七麌', 去: '去聲七遇', 入: null } },
+  { rimes: '齊祭', labels: { 平: '上平八齊', 上: '上聲八薺', 去: '去聲八霽', 入: null } },
+  { rimes: '佳皆夬', labels: { 平: '上平九佳', 上: '上聲九蟹', 去: '去聲十卦', 入: null } },
+  { rimes: '灰咍泰廢', labels: { 平: '上平十灰', 上: '上聲十賄', 去: '去聲十一隊', 入: null } },
+  { rimes: '真眞諄臻', labels: { 平: '上平十一真', 上: '上聲十一軫', 去: '去聲十二震', 入: '入聲四質' } },
+  { rimes: '文欣', labels: { 平: '上平十二文', 上: '上聲十二吻', 去: '去聲十三問', 入: '入聲五物' } },
+  { rimes: '元魂痕', labels: { 平: '上平十三元', 上: '上聲十三阮', 去: '去聲十四願', 入: '入聲六月' } },
+  { rimes: '寒桓', labels: { 平: '上平十四寒', 上: '上聲十四旱', 去: '去聲十五翰', 入: '入聲七曷' } },
+  { rimes: '刪山', labels: { 平: '上平十五刪', 上: '上聲十五潸', 去: '去聲十六諫', 入: '入聲八黠' } },
+  { rimes: '先仙', labels: { 平: '下平一先', 上: '上聲十六銑', 去: '去聲十七霰', 入: '入聲九屑' } },
+  { rimes: '蕭宵', labels: { 平: '下平二蕭', 上: '上聲十七篠', 去: '去聲十八嘯', 入: null } },
+  { rimes: '肴', labels: { 平: '下平三肴', 上: '上聲十八巧', 去: '去聲十九效', 入: null } },
+  { rimes: '豪', labels: { 平: '下平四豪', 上: '上聲十九皓', 去: '去聲二十號', 入: null } },
+  { rimes: '歌戈', labels: { 平: '下平五歌', 上: '上聲二十哿', 去: '去聲二十一箇', 入: null } },
+  { rimes: '麻', labels: { 平: '下平六麻', 上: '上聲二十一馬', 去: '去聲二十二禡', 入: null } },
+  { rimes: '陽唐', labels: { 平: '下平七陽', 上: '上聲二十二養', 去: '去聲二十三漾', 入: '入聲十藥' } },
+  { rimes: '庚耕清', labels: { 平: '下平八庚', 上: '上聲二十三梗', 去: '去聲二十四敬', 入: '入聲十一陌' } },
+  { rimes: '青', labels: { 平: '下平九青', 上: '上聲二十四迥', 去: '去聲二十五徑', 入: '入聲十二錫' } },
+  { rimes: '蒸登', labels: { 平: '下平十蒸', 上: null, 去: null, 入: '入聲十三職' } },
+  { rimes: '尤侯幽', labels: { 平: '下平十一尤', 上: '上聲二十五有', 去: '去聲二十六宥', 入: null } },
+  { rimes: '侵', labels: { 平: '下平十二侵', 上: '上聲二十六寢', 去: '去聲二十七沁', 入: '入聲十四緝' } },
+  { rimes: '覃談', labels: { 平: '下平十三覃', 上: '上聲二十七感', 去: '去聲二十八勘', 入: '入聲十五合' } },
+  { rimes: '鹽添嚴', labels: { 平: '下平十四鹽', 上: '上聲二十八儉', 去: '去聲二十九豔', 入: '入聲十六葉' } },
+  { rimes: '咸銜凡', labels: { 平: '下平十五咸', 上: '上聲二十九豏', 去: '去聲三十陷', 入: '入聲十七洽' } },
+];
 
 function toneFromCategory(tone: string): 1 | 2 | 3 | 4 {
   return tone === '上' ? 3 : tone === '去' || tone === '入' ? 4 : tone === '平' ? 1 : 2;
 }
-function contour(tone: string, profile: ProfileId) {
-  if (tone === '平') return '˧';
-  if (tone === '上') return '˧˩';
-  if (tone === '去') return '˥˩';
-  return profile === 'linan' ? 'ʔ' : '';
+
+function stripToneMarks(ipa: string) {
+  return ipa.normalize('NFD').replace(/[\u0300-\u036f]/g, '').normalize('NFC');
 }
-function deriveIpa(position: { 母: string; 韻: string; 聲: string }, profile: ProfileId) {
-  const onset = initials[position.母] ?? 'ə';
-  let final = rimes[position.韻] ?? 'ə';
-  if (position.聲 === '入') {
-    const coda = enteringCoda[position.韻] ?? 'k';
-    final = final.replace(/[mnpŋ]$/, '') + (profile === 'jinhua' ? coda : 'ʔ');
-  }
-  return `${onset}${final}${contour(position.聲, profile)}`;
+
+function regionalize(ipa: string, profile: ProfileId) {
+  // 目前不做沒有逐條出處的「吳語化」。profile 保留給可版本化的地域規則集。
+  void profile;
+  return ipa;
 }
 
 export function candidatesFor(character: string, profile: ProfileId): Reading[] {
-  const reviewed = reviewedReadings[character];
-  if (reviewed) {
-    const regional = profile === 'jinhua' && reviewed.confidence !== 'A'
-      ? { ...reviewed, ipa: reviewed.ipa.replaceAll('ʔ', 'k'), evidence: `${reviewed.evidence}；婺州方案暫保留較明顯的塞尾（C 級假設）。`, confidence: 'C' as Confidence }
-      : reviewed;
-    return [{ ...regional, source: 'reviewed' }];
-  }
-  const results = qieyunData.query字頭(character);
+  const results = TshetUinhExamples.from字頭(['position', 'baxter', 'n_song'] as const, character);
   if (results.length) {
-    return results.map((result) => ({
-      character,
-      position: result.音韻地位.描述,
-      ipa: deriveIpa(result.音韻地位, profile),
-      meaning: result.解釋.replace(/[一二三四五六七八九十]+$/, '').slice(0, 72),
-      evidence: `《廣韻》${result.韻部原貌}韻，反切「${result.反切 ?? '未載'}」；IPA 由本项目 v0.2 切韻規則推導。`,
-      confidence: 'C',
-      tone: toneFromCategory(result.音韻地位.聲),
-      source: 'guangyun-derived',
-    }));
+    return results.map((result) => {
+      const [position, baxter, northernSong] = result.推導結果;
+      const sourceRhyme = result.來源?.韻目 ?? result.音韻地位.韻;
+      const rime = result.音韻地位.韻;
+      const ipa = regionalize(northernSong, profile);
+      return {
+        character,
+        position,
+        ipa,
+        baxter,
+        meaning: result.釋義.replace(/[一二三四五六七八九十]+$/, '').slice(0, 96),
+        evidence: `《廣韻》${sourceRhyme}韻，反切「${result.反切 ?? '未載'}」；白一平轉寫 ${baxter}；音值採 TshetUinh《聲音唱和圖》北宋推導 ${northernSong} 作時代橋接。${profile === 'linan' ? '臨安' : '婺州'}地域層尚無足以逐字改寫的直接證據，故未強行改音。`,
+        confidence: 'C',
+        categoryConfidence: 'A',
+        periodConfidence: 'B',
+        regionalConfidence: 'C',
+        tone: toneFromCategory(result.音韻地位.聲),
+        source: 'song-derived',
+        sourceRhyme,
+        rime,
+      };
+    });
   }
-  return [{ character, position: '待考', ipa: '—', meaning: '尚未收錄', evidence: '此字未命中当前《廣韻》底座；請手動指定或保留待考狀態。', confidence: 'D', tone: 1, source: 'unresolved' }];
+  return [{
+    character,
+    position: '待考',
+    ipa: '—',
+    baxter: '—',
+    meaning: '尚未收錄',
+    evidence: '此字未命中當前《廣韻》底座；請手動指定或保留待考狀態。',
+    confidence: 'D', categoryConfidence: 'D', periodConfidence: 'D', regionalConfidence: 'D',
+    tone: 1, source: 'unresolved', sourceRhyme: null, rime: null,
+  }];
 }
 
-export function readingFor(character: string, profile: ProfileId, candidateIndex = 0) {
-  const candidates = candidatesFor(character, profile);
-  return candidates[Math.min(candidateIndex, candidates.length - 1)];
+function preferredIndex(hanText: string, index: number, candidates: Reading[]) {
+  const character = hanText[index];
+  const previous = hanText[index - 1] ?? '';
+  const next = hanText[index + 1] ?? '';
+  const choose = (category: ToneCategory) => {
+    const found = candidates.findIndex((reading) => reading.position.endsWith(category));
+    return found < 0 ? 0 : found;
+  };
+  if (character === '不') return choose('入');
+  if (character === '覺') return previous === '睡' ? choose('去') : choose('入');
+  if (character === '處') return next === '所' || previous === '到' || next === '處' || previous === '處' ? choose('去') : 0;
+  if (character === '聞') return previous === '名' || previous === '令' ? choose('去') : choose('平');
+  if (character === '雨') return next && /[雪我師澤]/.test(next) ? choose('去') : choose('上');
+  if (character === '少') return next && /[年女小主]/.test(next) ? choose('去') : choose('上');
+  return 0;
+}
+
+export function readingsFor(text: string, profile: ProfileId, overrides: Record<number, number> = {}) {
+  const characters = Array.from(text).filter(isHan);
+  const hanText = characters.join('');
+  return characters.map((character, index) => {
+    const candidates = candidatesFor(character, profile);
+    const selected = overrides[index] ?? preferredIndex(hanText, index, candidates);
+    return candidates[Math.min(selected, candidates.length - 1)];
+  });
 }
 
 export function prosodyOf(reading: Reading) {
-  const category = (reading.position.match(/(平|上|去|入)$/)?.[1] ?? '待考') as '平' | '上' | '去' | '入' | '待考';
-  const rhyme = Object.keys(rimes).find((name) => reading.position.endsWith(`${name}${category}`))
-    ?? reading.position.match(/(.)(平|上|去|入)$/)?.[1]
-    ?? null;
+  const category = (reading.position.match(/(平|上|去|入)$/)?.[1] ?? '待考') as ToneCategory | '待考';
+  const family = reading.rime ? rhymeFamilies.find((entry) => entry.rimes.includes(reading.rime!)) : undefined;
+  const pingshui = category === '待考' ? null : family?.labels[category] ?? null;
   return {
     category,
     level: category === '平' ? '平' : category === '待考' ? '？' : '仄',
-    rhyme,
+    sourceRhyme: reading.sourceRhyme,
+    pingshui,
+    rhymeKey: pingshui ? pingshui.replace(/^(上平|下平|上聲|去聲|入聲)[一二三四五六七八九十]+/, '') : null,
     entering: category === '入',
+    audibleFinal: stripToneMarks(reading.ipa).replace(/^[^aeiouyɨɯɛɑɒəʌœøɐ]+/, ''),
   };
 }
 
-export const confidenceLabel: Record<Confidence, string> = { A: '强证据', B: '有力推断', C: '规则推导 / 合理假设', D: '待考 / 合成策略' };
+export const confidenceLabel: Record<Confidence, string> = {
+  A: '韻書音韻地位', B: '宋代橋接推導', C: '地域音值待校', D: '待考／合成策略',
+};
 export const isHan = (character: string) => /[\u3400-\u9fff]/.test(character);
