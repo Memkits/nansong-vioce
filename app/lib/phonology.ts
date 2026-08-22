@@ -104,5 +104,18 @@ export function readingFor(character: string, profile: ProfileId, candidateIndex
   return candidates[Math.min(candidateIndex, candidates.length - 1)];
 }
 
+export function prosodyOf(reading: Reading) {
+  const category = (reading.position.match(/(平|上|去|入)$/)?.[1] ?? '待考') as '平' | '上' | '去' | '入' | '待考';
+  const rhyme = Object.keys(rimes).find((name) => reading.position.endsWith(`${name}${category}`))
+    ?? reading.position.match(/(.)(平|上|去|入)$/)?.[1]
+    ?? null;
+  return {
+    category,
+    level: category === '平' ? '平' : category === '待考' ? '？' : '仄',
+    rhyme,
+    entering: category === '入',
+  };
+}
+
 export const confidenceLabel: Record<Confidence, string> = { A: '强证据', B: '有力推断', C: '规则推导 / 合理假设', D: '待考 / 合成策略' };
 export const isHan = (character: string) => /[\u3400-\u9fff]/.test(character);
