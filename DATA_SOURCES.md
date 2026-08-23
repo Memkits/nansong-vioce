@@ -2,7 +2,7 @@
 
 > **状态说明：** 这是 AI 辅助 vibe coding 的资料登记，列出来源不代表目前的映射与声音已获验证。韵书结构、时代桥接、地域推断和合成策略必须分层阅读；问题与可能方案见 [README.md](README.md)。
 
-## 0.6 实验版
+## 0.7 实验版
 
 | 层 | 来源 | 版本／许可 | 当前用途 | 证据边界 |
 | --- | --- | --- | --- | --- |
@@ -16,6 +16,9 @@
 | 研究声音 | 项目内确定性 DSP＋Web Audio | 0.6 / 项目代码许可 | 48 kHz 单声道 WAV／播放；带限多谐波、四共振峰、低底噪元音、窄带塞擦、短爆破、presence 滤波与响度归一 | D：教学声响，不是历史真人声纹，也不是神经 TTS；参数只经过工程 A/B，未经听辨 |
 | 神经代理模型 | `onnx-community/Kokoro-82M-v1.1-zh-ONNX` | 当前仓库 main / Apache-2.0 | 用户主动启用后，从 Hugging Face 加载 q4f16（WebGPU）或 q8（WASM）模型与 `zf_001` 女声，浏览器本地推理 | 现代普通话自然度参照；不读取本页 IPA，不能证明南宋或地域发音 |
 | 神经代理运行时 | `@uzen/kokoro-js` | 1.2.4 / Apache-2.0 | 从固定 jsDelivr URL 延迟载入；中文分词／音素化、流式生成和 WebGPU→WASM 回退 | 外部托管与浏览器兼容性会影响可用性；不是核心分析依赖 |
+| 苏州入声声学对照 | [Ge, Xu, Gu & Mok, *Journal of Phonetics* 98 (2023), 101239](https://ling.cuhk.edu.hk/people/peggy/GeXuGuMok_JPhon_SuzhouProduction_2023.pdf) | 论文公开 PDF | 现代苏州 T7/T8 入声较短，韵尾喉塞大体保留，可实现为喉塞或元音末端嘎裂声 | 现代北部吴语比较证据；不能直接回投南宋临安／金华，也不据此把全部 `/p t k/` 改成 `[ʔ]` |
+| 苏州话研究语料 | [WenetSpeech-Wu](https://github.com/ASLP-lab/WenetSpeech-Wu-Repo)；[MagicData Dialect Wu Chinese TTS Lite](https://huggingface.co/datasets/MagicHub/magicdata-dialect-wu-chinese-tts-lite) | WenetSpeech-Wu 仓库 Apache-2.0；MagicData 音频正文 CC BY-NC-ND 4.0 | 前者含约 8,000 小时八种吴语及苏州 benchmark；后者含苏州女性单说话人约 10 分钟、48 kHz WAV | 本版未下载、未打包；MagicData 不可作商业训练或改编发布，且一位说话人不足以定参数 |
+| 粤语入声与语料 | 粤语声学研究；[Mozilla Common Voice Cantonese](https://commonvoice.mozilla.org/data)；[WenetSpeech-Yue](https://github.com/ASLP-lab/WenetSpeech-Yue) | Common Voice 26.0 / CC0-1.0；WenetSpeech-Yue 数据页 CC BY-NC-4.0 | `/p t k/` 不除阻塞尾和短时值作类型学对照；公开语料可用于统计韵尾闭锁与时长分布 | 现代粤语不是宋代吴地口音；只支持“短＋闭锁＋无释放”的工程实现，不支持具体历史音值 |
 
 ## 韵书使用政策
 

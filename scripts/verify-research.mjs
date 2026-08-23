@@ -14,8 +14,8 @@ assert.equal(endings[1].pingshui, '上聲十七篠');
 assert.equal(endings[2].pingshui, '下平八庚');
 assert.equal(endings[3].pingshui, '上聲十七篠');
 
-const durationFor = (reading) => reading.position.endsWith('入') ? 0.25 : 0.38;
-const gapFor = (index) => [4, 9, 14, 19].includes(index) ? 270 : 12;
+const durationFor = (reading) => reading.position.endsWith('入') ? 0.39 : 0.63;
+const gapFor = (index) => [4, 9, 14, 19].includes(index) ? 270 : 40;
 const first = renderResearchVoice(readings, durationFor, gapFor);
 const second = renderResearchVoice(readings, durationFor, gapFor);
 assert.equal(first.length, second.length);
@@ -28,5 +28,12 @@ assert.ok(peak > 0.3 && peak < 0.95, `异常峰值 ${peak}`);
 const wav = await waveBlob(first).arrayBuffer();
 assert.equal(new TextDecoder().decode(wav.slice(0, 4)), 'RIFF');
 assert.equal(new DataView(wav).getUint32(24, true), RESEARCH_SAMPLE_RATE);
+
+const entering = readings.find((reading) => reading.position.endsWith('入'));
+assert.ok(entering);
+const enteringAudio = renderResearchVoice([entering], () => 0.39, () => 0);
+const enteringEnd = Math.floor((0.04 + 0.39) * RESEARCH_SAMPLE_RATE);
+const silentTail = enteringAudio.slice(enteringEnd - Math.floor(0.012 * RESEARCH_SAMPLE_RATE), enteringEnd);
+assert.ok(silentTail.every((sample) => sample === 0), '入声末尾必须保留无释放闭锁静音');
 
 console.log(`research verification passed: ${readings.length} syllables, ${(first.length / RESEARCH_SAMPLE_RATE).toFixed(2)} s, peak ${peak.toFixed(3)}`);

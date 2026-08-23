@@ -100,6 +100,7 @@ function tonePitch(reading: Reading, position: number) {
 
 function syllableSamples(reading: Reading, duration: number, sampleRate: number, index: number) {
   const ipa = toneFree(reading.ipa);
+  const entering = reading.position.endsWith('入');
   const vowels = ipa.match(vowelPattern) ?? ['ə'];
   const coda = ipa.match(/[mnŋptk]$/)?.[0] ?? '';
   const first = formants[vowels[0]] ?? formants.ə;
@@ -143,8 +144,9 @@ function syllableSamples(reading: Reading, duration: number, sampleRate: number,
       currentFormants = currentFormants.map((frequency, formantIndex) => interpolate(feature.locus![formantIndex], frequency, transition)) as FormantSet;
     }
     const codaLocus = codaLoci[coda];
-    if (codaLocus && overall > 0.73) {
-      const codaTransition = Math.min(1, (overall - 0.73) / 0.27);
+    const codaTransitionStart = entering ? 0.62 : 0.73;
+    if (codaLocus && overall > codaTransitionStart) {
+      const codaTransition = Math.min(1, (overall - codaTransitionStart) / (1 - codaTransitionStart));
       currentFormants = currentFormants.map((frequency, formantIndex) => interpolate(frequency, codaLocus[formantIndex], codaTransition)) as FormantSet;
     }
     let voiced = 0;
@@ -196,10 +198,20 @@ function syllableSamples(reading: Reading, duration: number, sampleRate: number,
     output[sampleIndex] = (voiced * 0.72 * shimmer * vowelEnvelope + consonant + breath) * envelope;
   }
 
-  // 入聲的塞尾以短閉鎖結束，不添加現代普通話式舒展尾音。
-  if (reading.position.endsWith('入')) {
-    const closure = Math.min(length, Math.floor(0.018 * sampleRate));
-    for (let i = 0; i < closure; i += 1) output[length - closure + i] *= 1 - i / closure;
+  // 入聲提前向 /p t k/（或候選喉塞）閉鎖，末段完全靜音且不除阻。
+  // 時值與收尾形態只取現代吳、粵入聲作比較參照，不宣稱等同南宋實際音值。
+  if (entering) {
+    const closure = Math.min(length, Math.floor(0.052 * sampleRate));
+    const silentTail = Math.min(closure, Math.floor(0.014 * sampleRate));
+    const closingSamples = Math.max(1, closure - silentTail);
+    for (let i = 0; i < closure; i += 1) {
+      const outputIndex = length - closure + i;
+      if (i >= closingSamples) output[outputIndex] = 0;
+      else {
+        const position = i / closingSamples;
+        output[outputIndex] *= Math.pow(Math.cos(position * Math.PI / 2), 1.35);
+      }
+    }
   }
   return output;
 }
@@ -213,9 +225,14 @@ export function renderResearchVoice(
   const syllables = readings.map((reading, index) => syllableSamples(reading, durationFor(reading, index), sampleRate, index));
   const totalLength = syllables.reduce((total, samples, index) => total + samples.length + Math.floor(gapFor(index) / 1000 * sampleRate), Math.floor(0.06 * sampleRate));
   const output = new Float32Array(totalLength);
+  const enteringSilences: Array<[number, number]> = [];
   let cursor = Math.floor(0.04 * sampleRate);
   syllables.forEach((samples, index) => {
     output.set(samples, cursor);
+    if (readings[index].position.endsWith('入')) {
+      const end = cursor + samples.length;
+      enteringSilences.push([end - Math.floor(0.014 * sampleRate), end]);
+    }
     cursor += samples.length + Math.floor(gapFor(index) / 1000 * sampleRate);
   });
 
@@ -234,6 +251,8 @@ export function renderResearchVoice(
     presenceLow += presenceAlpha * (lowPassed - presenceLow);
     output[index] = lowPassed + (lowPassed - presenceLow) * 0.10;
   }
+  // 後級濾波會在零值尾端留下極短殘響；重新置零，確保入聲閉鎖後沒有拖尾或釋放聲。
+  enteringSilences.forEach(([start, end]) => output.fill(0, start, end));
 
   let peak = 0;
   let squareSum = 0;
