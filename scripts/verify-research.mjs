@@ -15,7 +15,7 @@ assert.equal(endings[2].pingshui, '下平八庚');
 assert.equal(endings[3].pingshui, '上聲十七篠');
 
 const durationFor = (reading) => reading.position.endsWith('入') ? 0.25 : 0.38;
-const gapFor = (index) => [4, 9, 14, 19].includes(index) ? 270 : 24;
+const gapFor = (index) => [4, 9, 14, 19].includes(index) ? 270 : 12;
 const first = renderResearchVoice(readings, durationFor, gapFor);
 const second = renderResearchVoice(readings, durationFor, gapFor);
 assert.equal(first.length, second.length);

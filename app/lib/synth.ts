@@ -117,7 +117,7 @@ function syllableSamples(reading: Reading, duration: number, sampleRate: number,
   let noiseLow = 0;
   let noiseHigh = 0;
   const noiseCenter = feature.noiseCenter ?? 1800;
-  const noiseHalfWidth = Math.max(420, noiseCenter * 0.42);
+  const noiseHalfWidth = Math.max(300, noiseCenter * (feature.kind === 'affricate' ? 0.20 : feature.kind === 'fricative' ? 0.34 : 0.38));
   const lowAlpha = 1 - Math.exp(-Math.PI * 2 * Math.max(120, noiseCenter - noiseHalfWidth) / sampleRate);
   const highAlpha = 1 - Math.exp(-Math.PI * 2 * Math.min(sampleRate * 0.46, noiseCenter + noiseHalfWidth) / sampleRate);
 
@@ -127,11 +127,13 @@ function syllableSamples(reading: Reading, duration: number, sampleRate: number,
     const attack = Math.min(1, sampleIndex / Math.max(1, Math.floor(0.022 * sampleRate)));
     const release = Math.min(1, (length - 1 - sampleIndex) / Math.max(1, Math.floor(0.024 * sampleRate)));
     const envelope = Math.sin(Math.min(1, attack) * Math.PI / 2) * Math.sin(Math.min(1, release) * Math.PI / 2);
-    const preVoicing = feature.kind === 'nasal' ? 0.24 : feature.kind === 'liquid' || feature.kind === 'glide' ? 0.15 : 0.025;
+    const preVoicing = feature.kind === 'nasal' ? 0.20
+      : feature.kind === 'liquid' || feature.kind === 'glide' ? 0.12
+        : feature.voiced ? 0.035 : 0;
     const vowelEnvelope = sampleIndex < onset ? preVoicing : Math.min(1, (sampleIndex - onset) / Math.max(1, 0.016 * sampleRate));
     const seconds = sampleIndex / sampleRate;
     // 固定的微幅基频／振幅扰动用于减少机械蜂鸣；幅度刻意保持很小，不承担语气表达。
-    const pitch = tonePitch(reading, overall) * (1 + 0.0045 * Math.sin(Math.PI * 2 * 5.1 * seconds + index * 0.73) + 0.0018 * Math.sin(Math.PI * 2 * 3.2 * seconds + index));
+    const pitch = tonePitch(reading, overall) * (1 + 0.0032 * Math.sin(Math.PI * 2 * 5.1 * seconds + index * 0.73) + 0.0012 * Math.sin(Math.PI * 2 * 3.2 * seconds + index));
     phase += Math.PI * 2 * pitch / sampleRate;
     let currentFormants = first.map((frequency, formantIndex) => interpolate(frequency, last[formantIndex], vowelPosition)) as FormantSet;
     const transitionEnd = onset + Math.floor(0.052 * sampleRate);
@@ -149,7 +151,7 @@ function syllableSamples(reading: Reading, duration: number, sampleRate: number,
     let weightTotal = 0;
     for (let harmonic = 1; harmonic <= harmonicCount; harmonic += 1) {
       const frequency = pitch * harmonic;
-      const spectralTilt = (harmonic % 2 === 0 ? 0.88 : 1.04) / Math.pow(harmonic, 1.46);
+      const spectralTilt = (harmonic % 2 === 0 ? 0.90 : 1.03) / Math.pow(harmonic, 1.36);
       const resonance = currentFormants.reduce((sum, formant, formantIndex) => {
         const bandwidth = [95, 135, 180, 240][formantIndex];
         const distance = (frequency - formant) / bandwidth;
@@ -170,27 +172,27 @@ function syllableSamples(reading: Reading, duration: number, sampleRate: number,
     noiseLow += highAlpha * (noise - noiseLow);
     noiseHigh += lowAlpha * (noise - noiseHigh);
     // 两个一阶低通的差形成稳定噪声带，比以正弦乘白噪声更少金属感。
-    const shapedNoise = (noiseLow - noiseHigh) * 1.45;
+    const shapedNoise = (noiseLow - noiseHigh) * 1.18;
     let consonant = 0;
     if (sampleIndex < onset) {
       const onsetPosition = sampleIndex / Math.max(1, onset);
       const onsetBell = Math.sin(onsetPosition * Math.PI);
-      if (feature.kind === 'fricative') consonant = shapedNoise * 0.24 * onsetBell + (feature.voiced ? Math.sin(phase) * 0.055 : 0);
+      if (feature.kind === 'fricative') consonant = shapedNoise * 0.17 * onsetBell + (feature.voiced ? Math.sin(phase) * 0.045 : 0);
       if (feature.kind === 'stop') {
         if (feature.voiced && onsetPosition < 0.56) consonant += Math.sin(phase) * 0.1;
-        if (onsetPosition > 0.56 && onsetPosition < 0.74) consonant += shapedNoise * 0.31 * Math.sin((onsetPosition - 0.56) / 0.18 * Math.PI);
-        if (feature.aspirated && onsetPosition >= 0.7) consonant += shapedNoise * 0.15 * onsetBell;
+        if (onsetPosition > 0.58 && onsetPosition < 0.68) consonant += shapedNoise * 0.52 * Math.sin((onsetPosition - 0.58) / 0.10 * Math.PI);
+        if (feature.aspirated && onsetPosition >= 0.66) consonant += shapedNoise * 0.085 * Math.sin((onsetPosition - 0.66) / 0.34 * Math.PI);
       }
       if (feature.kind === 'affricate') {
         if (feature.voiced && onsetPosition < 0.32) consonant += Math.sin(phase) * 0.08;
-        if (onsetPosition > 0.30 && onsetPosition < 0.48) consonant += shapedNoise * 0.28 * Math.sin((onsetPosition - 0.30) / 0.18 * Math.PI);
-        if (onsetPosition > 0.43) consonant += shapedNoise * (feature.aspirated ? 0.25 : 0.2) * Math.sin((onsetPosition - 0.43) / 0.57 * Math.PI / 2);
+        if (onsetPosition > 0.34 && onsetPosition < 0.45) consonant += shapedNoise * 0.43 * Math.sin((onsetPosition - 0.34) / 0.11 * Math.PI);
+        if (onsetPosition > 0.42) consonant += shapedNoise * (feature.aspirated ? 0.17 : 0.13) * Math.sin((onsetPosition - 0.42) / 0.58 * Math.PI);
       }
       if (feature.kind === 'nasal') consonant = Math.sin(phase) * 0.16 + Math.sin(phase * 2) * 0.04;
       if (feature.kind === 'liquid' || feature.kind === 'glide') consonant = Math.sin(phase) * 0.11;
     }
-    const shimmer = 0.985 + 0.015 * Math.sin(Math.PI * 2 * 4.3 * seconds + index * 0.37);
-    const breath = noise * 0.008 * vowelEnvelope;
+    const shimmer = 0.994 + 0.006 * Math.sin(Math.PI * 2 * 4.3 * seconds + index * 0.37);
+    const breath = noise * 0.0025 * vowelEnvelope;
     output[sampleIndex] = (voiced * 0.72 * shimmer * vowelEnvelope + consonant + breath) * envelope;
   }
 
@@ -217,17 +219,20 @@ export function renderResearchVoice(
     cursor += samples.length + Math.floor(gapFor(index) / 1000 * sampleRate);
   });
 
-  // 去直流并柔和 10 kHz 以上的毛刺；48 kHz 采样率不变。
+  // 去直流、抑制超高频毛刺，并轻推 2 kHz 以上的清晰度频段；48 kHz 采样率不变。
   let previousInput = 0;
   let highPassed = 0;
   let lowPassed = 0;
-  const lowPassAlpha = 1 - Math.exp(-Math.PI * 2 * 10_000 / sampleRate);
+  let presenceLow = 0;
+  const lowPassAlpha = 1 - Math.exp(-Math.PI * 2 * 11_500 / sampleRate);
+  const presenceAlpha = 1 - Math.exp(-Math.PI * 2 * 2_000 / sampleRate);
   for (let index = 0; index < output.length; index += 1) {
     const current = output[index];
     highPassed = current - previousInput + 0.992 * highPassed;
     previousInput = current;
     lowPassed += lowPassAlpha * (highPassed - lowPassed);
-    output[index] = lowPassed;
+    presenceLow += presenceAlpha * (lowPassed - presenceLow);
+    output[index] = lowPassed + (lowPassed - presenceLow) * 0.10;
   }
 
   let peak = 0;
