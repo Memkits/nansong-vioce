@@ -1,6 +1,6 @@
 import * as TshetUinhExamples from 'tshet-uinh-examples';
 
-export type ProfileId = 'linan' | 'jinhua';
+export type ProfileId = 'tongyu' | 'linan';
 export type Confidence = 'A' | 'B' | 'C' | 'D';
 export type Reading = {
   character: string;
@@ -65,8 +65,9 @@ function stripToneMarks(ipa: string) {
   return ipa.normalize('NFD').replace(/[\u0300-\u036f]/g, '').normalize('NFC');
 }
 
-function regionalize(ipa: string, profile: ProfileId) {
-  // 目前不做沒有逐條出處的「吳語化」。profile 保留給可版本化的地域規則集。
+function realizeProfile(ipa: string, profile: ProfileId) {
+  // 目前「宋代文人通語」直接採北宋橋接；「南宋臨安」尚未做沒有逐條出處的地方化。
+  // 兩者分開是為了準確表達研究層級，不暗示已存在兩套不同音值。
   void profile;
   return ipa;
 }
@@ -78,18 +79,19 @@ export function candidatesFor(character: string, profile: ProfileId): Reading[] 
       const [position, baxter, northernSong] = result.推導結果;
       const sourceRhyme = result.來源?.韻目 ?? result.音韻地位.韻;
       const rime = result.音韻地位.韻;
-      const ipa = regionalize(northernSong, profile);
+      const ipa = realizeProfile(northernSong, profile);
+      const isTongyu = profile === 'tongyu';
       return {
         character,
         position,
         ipa,
         baxter,
         meaning: result.釋義.replace(/[一二三四五六七八九十]+$/, '').slice(0, 96),
-        evidence: `《廣韻》${sourceRhyme}韻，反切「${result.反切 ?? '未載'}」；白一平轉寫 ${baxter}；音值採 TshetUinh《聲音唱和圖》北宋推導 ${northernSong} 作時代橋接。${profile === 'linan' ? '臨安' : '婺州'}地域層尚無足以逐字改寫的直接證據，故未強行改音。`,
-        confidence: 'C',
+        evidence: `《廣韻》${sourceRhyme}韻，反切「${result.反切 ?? '未載'}」；白一平轉寫 ${baxter}；音值採 TshetUinh《聲音唱和圖》北宋推導 ${northernSong} 作時代橋接。${isTongyu ? '宋詞實際用韻與宋人音注尚未完成逐字校驗。' : '臨安城市共同語層尚無足以逐字改寫的直接證據，故暫與通語基線同音。'}`,
+        confidence: isTongyu ? 'B' : 'C',
         categoryConfidence: 'A',
         periodConfidence: 'B',
-        regionalConfidence: 'C',
+        regionalConfidence: isTongyu ? 'B' : 'C',
         tone: toneFromCategory(result.音韻地位.聲),
         source: 'song-derived',
         sourceRhyme,

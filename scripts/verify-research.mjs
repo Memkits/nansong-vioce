@@ -3,7 +3,8 @@ import { prosodyOf, readingsFor } from '../app/lib/phonology.ts';
 import { RESEARCH_SAMPLE_RATE, renderResearchVoice, waveBlob } from '../app/lib/synth.ts';
 
 const text = '春眠不覺曉，處處聞啼鳥。夜來風雨聲，花落知多少。';
-const readings = readingsFor(text, 'linan');
+const readings = readingsFor(text, 'tongyu');
+assert.ok(readings.every((reading) => reading.confidence === 'B'), '宋代文人通语基线应标为 B');
 assert.equal(readings.length, 20);
 assert.ok(readings.find((reading) => reading.character === '不')?.position.endsWith('入'));
 assert.ok(readings.find((reading) => reading.character === '覺')?.position.endsWith('入'));
