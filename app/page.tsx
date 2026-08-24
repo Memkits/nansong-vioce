@@ -2,11 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import OpenCC from 'opencc-js/cn2t';
 import { candidatesFor, isHan, prosodyOf, readingsFor, type ProfileId, type Reading } from './lib/phonology';
 import { RESEARCH_SAMPLE_RATE, RESEARCH_VOICE_VERSION, renderResearchVoice, waveBlob } from './lib/synth';
+import { COMFORTABLE_SYLLABLE_MS, ENTERING_SYLLABLE_MS, INTER_CHARACTER_GAP_MS, gapAfterReadingMs, leadingPunctuationPauseMs, punctuationPauseMs, punctuationTiming } from './lib/timing';
 
 const sampleText = '明月幾時有，把酒問青天。不知天上宮闕，今夕是何年。';
 const toTraditional = OpenCC.Converter({ from: 'cn', to: 't' });
 const neuralModel = 'onnx-community/Kokoro-82M-v1.1-zh-ONNX';
-const interCharacterGapMs = 40;
 const neuralVoicePath = `https://huggingface.co/${neuralModel}/resolve/main/voices`;
 const neuralRuntime = 'https://cdn.jsdelivr.net/npm/@uzen/kokoro-js@1.2.4/dist/kokoro.web.js';
 type NeuralAudio = { toBlob: () => Blob };
@@ -66,11 +66,12 @@ export default function Home() {
   const analysisText = useMemo(() => toTraditional(text), [text]);
   const readings = useMemo(() => readingsFor(analysisText, profile, overrides), [analysisText, profile, overrides]);
   const selectedIndex = Math.min(selected, Math.max(readings.length - 1, 0));
+  const punctuation = useMemo(() => punctuationTiming(analysisText), [analysisText]);
   const active = readings[selectedIndex] ?? readings[0];
   const alternatives = active ? candidatesFor(active.character, profile) : [];
   const covered = readings.filter((reading) => reading.confidence !== 'D').length;
   const sentenceData = useMemo(() => {
-    const chunks = analysisText.match(/[^，、。！？；]+[，、。！？；]?/gu) ?? [];
+    const chunks = analysisText.match(/[^\p{P}]+[\p{P}]*/gu) ?? [];
     return chunks.reduce<{ cursor: number; sentences: Array<{ chunk: string; start: number; end: number; ending: Reading | undefined; prosody: ReturnType<typeof prosodyOf> | null }> }>((result, chunk) => {
       const count = Array.from(chunk).filter(isHan).length;
       const end = result.cursor + count;
@@ -93,10 +94,11 @@ export default function Home() {
   }, [sentenceData]);
   const durationFor = (reading: Reading, index: number) => {
     const entering = reading.position.endsWith('入');
-    const basic = (entering ? 0.39 : 0.63) / rate;
+    const basic = (entering ? ENTERING_SYLLABLE_MS : COMFORTABLE_SYLLABLE_MS) / 1000 / rate;
     return emphasizeRhyme && rhymeFinals.has(index) ? basic * (entering ? 1.08 : 1.20) : basic;
   };
-  const gapFor = (index: number) => rhymeFinals.has(index) ? pause : interCharacterGapMs;
+  const gapFor = (index: number) => gapAfterReadingMs(index, punctuation, rate);
+  const initialGapMs = leadingPunctuationPauseMs(punctuation, rate);
 
   useEffect(() => () => {
     window.speechSynthesis.cancel();
@@ -130,7 +132,7 @@ export default function Home() {
   async function playStudyVoice() {
     stop();
     const Context = window.AudioContext || (window as typeof window & { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const samples = renderResearchVoice(readings, durationFor, gapFor);
+    const samples = renderResearchVoice(readings, durationFor, gapFor, RESEARCH_SAMPLE_RATE, initialGapMs);
     const context = new Context(); audioContext.current = context; stopRef.current = false; setIsPlaying(true);
     const buffer = context.createBuffer(1, samples.length, RESEARCH_SAMPLE_RATE);
     buffer.copyToChannel(samples, 0);
@@ -181,12 +183,28 @@ export default function Home() {
     window.speechSynthesis.cancel(); window.speechSynthesis.speak(utterance);
   }
   function downloadAnnotation() {
-    const payload = { system: '宋词文人通语与南宋临安朗读系统', profile: profiles[profile], dataVersion: '0.9.0-experimental', createdAt: new Date().toISOString(), sourceText: text, analysisText, readings, sentenceData, dominantRhyme, emphasizeRhyme, audio: { sampleRate: RESEARCH_SAMPLE_RATE, renderer: RESEARCH_VOICE_VERSION, playbackRate: rate, interCharacterGapMs, sentencePauseMs: pause, neuralProxy: neuralModel } };
+    const payload = {
+      system: '宋词文人通语与南宋临安朗读系统',
+      profile: profiles[profile],
+      dataVersion: '0.10.0-experimental',
+      createdAt: new Date().toISOString(),
+      sourceText: text,
+      analysisText,
+      readings,
+      sentenceData,
+      dominantRhyme,
+      emphasizeRhyme,
+      audio: {
+        sampleRate: RESEARCH_SAMPLE_RATE, renderer: RESEARCH_VOICE_VERSION, playbackRate: rate,
+        interCharacterGapMs: INTER_CHARACTER_GAP_MS, punctuationPauseMs: punctuationPauseMs(rate),
+        punctuationPolicy: 'one-comfortable-syllable-per-mark', punctuationMarks: punctuation.totalMarks, neuralProxy: neuralModel,
+      },
+    };
     const href = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
     const anchor = document.createElement('a'); anchor.href = href; anchor.download = 'nansong-phonology-annotation.json'; anchor.click(); URL.revokeObjectURL(href);
   }
   async function downloadResearchAudio() {
-    const samples = renderResearchVoice(readings, durationFor, gapFor);
+    const samples = renderResearchVoice(readings, durationFor, gapFor, RESEARCH_SAMPLE_RATE, initialGapMs);
     const href = URL.createObjectURL(waveBlob(samples));
     const anchor = document.createElement('a');
     anchor.href = href;
@@ -234,7 +252,12 @@ export default function Home() {
     </section>
 
     <section className="listen-section" id="listening">
-      <div><p className="eyebrow">LISTENING ROOM</p><h2>最后试听方案</h2><p className="listen-copy">研究合成 v6 以声门脉冲和串联共振器替代逐谐波正弦叠加，并单独校准元音与辅音响度；目标是减少电子蜂鸣、让声母更突出。`/p t k/` 入声仍只是清楚、短促的保守可控方案，不表示宋代文人通语必然完整保留三套塞尾。</p><UnverifiedNotice area="研究合成、神经代理与设备声线" className="inline-notice" /></div>
+      <div>
+        <p className="eyebrow">LISTENING ROOM</p><h2>最后试听方案</h2>
+        <p className="listen-copy">研究合成 v7 将平、上、去、入改为音域、方向和拐点均可分的轮廓；现代多调方言只作声学区分参照，不代表南宋实际调值。`/p t k/` 入声仍是短促的保守可控方案。</p>
+        <p className="timing-note">平声高平 · 上声先抑后扬 · 去声高起陡降 · 入声短而闭锁。每一枚标点静音一个普通舒声音节：当前约 {Math.round(punctuationPauseMs(rate))} ms。</p>
+        <UnverifiedNotice area="研究合成、神经代理与设备声线" className="inline-notice" />
+      </div>
       <div className="voice-panel"><div className="mode-tabs"><button onClick={() => setMode('study')} className={mode === 'study' ? 'active' : ''}>研究合成 <small>IPA 可控 · v6</small></button><button onClick={() => setMode('neural')} className={mode === 'neural' ? 'active' : ''}>神经代理 <small>现代普通话</small></button><button onClick={() => setMode('system')} className={mode === 'system' ? 'active' : ''}>设备声线 <small>系统预听</small></button></div>{mode === 'neural' && <div className="neural-note"><b>Kokoro 中文女声 · 在线模型</b><p>首次使用需下载并缓存上百 MB；之后在浏览器本地推理。它不读取本页 IPA，也不能验证宋代文人通语或临安实现。</p><span>{neuralStatus}</span></div>}{mode === 'system' && <label className="voice-picker">选择设备声线 <select value={voiceUri} onChange={(event) => setVoiceUri(event.target.value)} disabled={!voices.length}>{voices.length ? voices.map((voice) => <option value={voice.voiceURI} key={voice.voiceURI}>{voice.name} · {voice.lang}</option>) : <option>未检测到中文声线</option>}</select><small>请在设备提供的中文声线中选择女性声线。</small></label>}<div className={mode === 'study' ? 'sliders' : 'sliders single'}><label>语速 <output>{rate.toFixed(2)}×</output><input type="range" min="0.65" max="1.15" step="0.01" value={rate} onChange={(event) => setRate(Number(event.target.value))} /></label>{mode === 'study' && <label>句间停顿 <output>{pause}ms</output><input type="range" min="120" max="720" step="30" value={pause} onChange={(event) => setPause(Number(event.target.value))} /></label>}</div>{mode === 'study' && <label className="rhyme-toggle"><input type="checkbox" checked={emphasizeRhyme} onChange={(event) => setEmphasizeRhyme(event.target.checked)} />强化句末韵脚时值 <small>入声只轻微延长，仍保持短促</small></label>}<div className="player-row"><button className={isPlaying ? 'stop-button' : 'play-button'} onClick={isPlaying ? stop : mode === 'study' ? playStudyVoice : mode === 'neural' ? playNeuralVoice : playSystemVoice}>{isPlaying ? '■ 停止' : mode === 'neural' ? '▶ 加载并朗读' : '▶ 开始朗读'}</button>{mode === 'study' && <button className="export-audio" onClick={downloadResearchAudio}>下载 48 kHz WAV</button>}<span>{mode === 'study' ? '舒声约 630 ms · 入声约 390 ms' : mode === 'neural' ? '自然度比较 · 非历史拟音' : '取决于设备声线'}</span></div></div>
     </section>
     <footer><span>宋词声景 · AI vibe coding 未验证原型</span><span>婺州资料仅作比较；请将听感、韵书分类与历史音值分开理解。</span></footer>

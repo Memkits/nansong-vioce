@@ -1,7 +1,18 @@
 import type { Reading } from './phonology';
 
 export const RESEARCH_SAMPLE_RATE = 48_000;
-export const RESEARCH_VOICE_VERSION = 'v6-source-filter-clarity';
+export const RESEARCH_VOICE_VERSION = 'v7-distinct-tones-punctuation';
+
+export type ResearchToneCategory = '平' | '上' | '去' | '入';
+
+// 这些目标只把多调方言中可听的音域、方向和拐点差异用作声学工程参照，
+// 不是将任何一种现代方言的调值倒推为南宋调值。
+export const RESEARCH_TONE_CONTOURS: Record<ResearchToneCategory, readonly number[]> = {
+  平: [226, 224, 222],
+  上: [185, 170, 186, 252],
+  去: [258, 248, 205, 165],
+  入: [232, 222],
+};
 
 const formants: Record<string, [number, number, number, number]> = {
   i: [310, 2550, 3300, 4050], y: [320, 1850, 2750, 3900], ɨ: [390, 1650, 2650, 3900], ɯ: [390, 1250, 2450, 3850],
@@ -115,13 +126,22 @@ function resonate(input: number, frequency: number, bandwidth: number, sampleRat
   return output;
 }
 
-function tonePitch(reading: Reading, position: number) {
-  if (reading.position.endsWith('入')) return 218 - position * 12;
-  if (reading.tone === 3) return interpolate(185, 238, position);
-  if (reading.tone === 4) return interpolate(238, 178, position);
-  if (reading.tone === 2) return interpolate(195, 225, position);
-  return interpolate(214, 196, position);
+export function researchToneCategory(reading: Reading): ResearchToneCategory {
+  const category = reading.position.match(/[平上去入]$/u)?.[0];
+  return category === '上' || category === '去' || category === '入' ? category : '平';
 }
+
+export function researchTonePitch(reading: Reading, position: number) {
+  const points = RESEARCH_TONE_CONTOURS[researchToneCategory(reading)];
+  const bounded = Math.max(0, Math.min(1, position));
+  const scaled = bounded * (points.length - 1);
+  const segment = Math.min(points.length - 2, Math.floor(scaled));
+  const local = scaled - segment;
+  const eased = 0.5 - 0.5 * Math.cos(Math.PI * local);
+  return interpolate(points[segment], points[segment + 1], eased);
+}
+
+const tonePitch = researchTonePitch;
 
 function syllableSamples(reading: Reading, duration: number, sampleRate: number, index: number) {
   const ipa = toneFree(reading.ipa);
@@ -264,12 +284,14 @@ export function renderResearchVoice(
   durationFor: (reading: Reading, index: number) => number,
   gapFor: (index: number) => number,
   sampleRate = RESEARCH_SAMPLE_RATE,
+  initialGapMs = 0,
 ) {
   const syllables = readings.map((reading, index) => syllableSamples(reading, durationFor(reading, index), sampleRate, index));
   const totalLength = syllables.reduce((total, samples, index) => total + samples.length + Math.floor(gapFor(index) / 1000 * sampleRate), Math.floor(0.06 * sampleRate));
-  const output = new Float32Array(totalLength);
+  const initialGapSamples = Math.floor(Math.max(0, initialGapMs) / 1000 * sampleRate);
+  const output = new Float32Array(totalLength + initialGapSamples);
   const enteringSilences: Array<[number, number]> = [];
-  let cursor = Math.floor(0.04 * sampleRate);
+  let cursor = Math.floor(0.04 * sampleRate) + initialGapSamples;
   syllables.forEach((samples, index) => {
     output.set(samples, cursor);
     if (readings[index].position.endsWith('入')) {

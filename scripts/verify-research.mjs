@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { prosodyOf, readingsFor } from '../app/lib/phonology.ts';
-import { RESEARCH_SAMPLE_RATE, RESEARCH_VOICE_VERSION, renderResearchVoice, waveBlob } from '../app/lib/synth.ts';
+import { RESEARCH_SAMPLE_RATE, RESEARCH_VOICE_VERSION, renderResearchVoice, researchTonePitch, waveBlob } from '../app/lib/synth.ts';
+import { gapAfterReadingMs, leadingPunctuationPauseMs, punctuationTiming } from '../app/lib/timing.ts';
 
 const rms = (samples) => Math.sqrt(samples.reduce((sum, sample) => sum + sample * sample, 0) / Math.max(1, samples.length));
 const windowOf = (samples, start, end) => samples.slice(Math.floor(start * RESEARCH_SAMPLE_RATE), Math.floor(end * RESEARCH_SAMPLE_RATE));
@@ -30,11 +31,35 @@ const renderCharacter = (character) => renderResearchVoice(readingsFor(character
 
 const text = '春眠不覺曉，處處聞啼鳥。夜來風雨聲，花落知多少。';
 const readings = readingsFor(text, 'tongyu');
-assert.equal(RESEARCH_VOICE_VERSION, 'v6-source-filter-clarity');
+assert.equal(RESEARCH_VOICE_VERSION, 'v7-distinct-tones-punctuation');
 assert.ok(readings.every((reading) => reading.confidence === 'B'), '宋代文人通语基线应标为 B');
 assert.equal(readings.length, 20);
 assert.ok(readings.find((reading) => reading.character === '不')?.position.endsWith('入'));
 assert.ok(readings.find((reading) => reading.character === '覺')?.position.endsWith('入'));
+// 调形目标只锁定声学可分性，不把工程曲线当作历史调值验证。
+const toneReading = (category) => readings.find((reading) => reading.position.endsWith(category));
+const flat = toneReading('平');
+const rise = toneReading('上');
+const fall = toneReading('去');
+const checked = toneReading('入');
+assert.ok(flat && rise && fall && checked, '样本必须覆盖平上去入');
+
+const flatPitches = [0, 0.5, 1].map((position) => researchTonePitch(flat, position));
+assert.ok(Math.max(...flatPitches) - Math.min(...flatPitches) <= 4, '平声应保持高平');
+const riseValley = researchTonePitch(rise, 1 / 3);
+assert.ok(riseValley + 10 < researchTonePitch(rise, 0), '上声前段必须先抑');
+assert.ok(researchTonePitch(rise, 1) - riseValley > 75, '上声末段必须显著扬起');
+assert.ok(researchTonePitch(fall, 0) - researchTonePitch(fall, 1) > 85, '去声必须高起陡降');
+assert.ok(researchTonePitch(rise, 1) > researchTonePitch(flat, 1) + 25 && researchTonePitch(flat, 1) > researchTonePitch(fall, 1) + 45, '舒声终点必须可分');
+
+const punctuation = punctuationTiming('，春……眠!');
+assert.equal(punctuation.beforeFirst, 1);
+assert.equal(punctuation.totalMarks, 4);
+assert.equal(punctuation.afterReading.get(0), 2);
+assert.equal(punctuation.afterReading.get(1), 1);
+assert.equal(leadingPunctuationPauseMs(punctuation, 1), 630);
+assert.equal(gapAfterReadingMs(0, punctuation, 1), 1260);
+assert.equal(gapAfterReadingMs(1, punctuation, 1), 630);
 
 const endings = ['曉', '鳥', '聲', '少'].map((character) => prosodyOf(readings.findLast((reading) => reading.character === character)));
 assert.equal(endings[0].pingshui, '上聲十七篠');
