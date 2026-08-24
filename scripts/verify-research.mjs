@@ -106,7 +106,8 @@ assert.ok(relativeRoughness < 0.121, `稳态元音高频粗糙度回退：${rela
 
 const unaspiratedTail = rms(windowOf(labialStop, 0.084, 0.092));
 const aspiratedTail = rms(windowOf(aspiratedLabialStop, 0.084, 0.092));
-assert.ok(aspiratedTail > 0.01 && aspiratedTail > unaspiratedTail * 100, '送气段必须与不送气闭锁明显分离');
+assert.ok(aspiratedTail > 0.01 && aspiratedTail > unaspiratedTail * 100,
+  `送气段必须与不送气闭锁明显分离：${unaspiratedTail.toFixed(5)} / ${aspiratedTail.toFixed(5)}`);
 
 const burstWindow = (samples) => windowOf(samples, 0.070, 0.079);
 const labialCentroid = spectralCentroid(burstWindow(labialStop));

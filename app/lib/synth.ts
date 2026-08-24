@@ -8,9 +8,9 @@ export type ResearchToneCategory = '平' | '上' | '去' | '入';
 // 这些目标只把多调方言中可听的音域、方向和拐点差异用作声学工程参照，
 // 不是将任何一种现代方言的调值倒推为南宋调值。
 export const RESEARCH_TONE_CONTOURS: Record<ResearchToneCategory, readonly number[]> = {
-  平: [226, 224, 222],
+  平: [210, 209, 208],
   上: [185, 170, 186, 252],
-  去: [258, 248, 205, 165],
+  去: [258, 246, 202, 160],
   入: [232, 222],
 };
 
@@ -230,7 +230,7 @@ function syllableSamples(reading: Reading, duration: number, sampleRate: number,
       if (feature.kind === 'stop') {
         if (feature.voiced && onsetPosition < 0.56) consonant += Math.sin(phase) * 0.1;
         if (onsetPosition > 0.58 && onsetPosition < 0.68) consonant += shapedNoise * 0.66 * Math.sin((onsetPosition - 0.58) / 0.10 * Math.PI);
-        if (feature.aspirated && onsetPosition >= 0.66) consonant += shapedNoise * 0.14 * Math.sin((onsetPosition - 0.66) / 0.34 * Math.PI);
+        if (feature.aspirated && onsetPosition >= 0.66) consonant += shapedNoise * 0.17 * Math.sin((onsetPosition - 0.66) / 0.34 * Math.PI);
       }
       if (feature.kind === 'affricate') {
         if (feature.voiced && onsetPosition < 0.32) consonant += Math.sin(phase) * 0.08;
