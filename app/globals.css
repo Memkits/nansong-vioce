@@ -39,3 +39,8 @@ button, textarea, input { font: inherit; } button { cursor: pointer; }
 .voice-picker { display: block; padding: 21px 0 0; color: #d8cfc0; font-size: 12px; }.voice-picker select { display: block; width: 100%; margin-top: 9px; padding: 8px; color: #f2eadc; background: #393631; border: 1px solid #71695e; }.voice-picker small { display: block; margin-top: 7px; color: #91897e; font-size: 10px; }
 .neural-note { margin-top: 20px; padding: 13px 14px; color: #d8cfc0; background: #393631; border-left: 3px solid #d39b47; font-size: 11px; line-height: 1.55; }.neural-note b { color: #e3b36e; }.neural-note p { margin: 5px 0; }.neural-note span { color: #a9c7be; }
 @media (max-width: 780px) { .prosody-section { padding: 52px 0 10px; }.prosody-heading { display: block; }.prosody-heading > p { margin-top: 14px; }.sentence-grid { grid-template-columns: 1fr 1fr; } }
+.voice-panel .sliders label:nth-child(2) { display: none; }
+.voice-panel .sliders { grid-template-columns: 1fr; }
+.mode-tabs button:first-child small { font-size: 0; }
+.mode-tabs button:first-child small::after { content: 'IPA 可控 · v7'; font-size: 10px; }
+.timing-note { margin: 14px 0 0; padding: 10px 12px; color: #5f584e; background: #eee5d7; border-left: 3px solid var(--jade); font-size: 11px; line-height: 1.7; }

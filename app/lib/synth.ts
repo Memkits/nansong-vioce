@@ -1,6 +1,18 @@
 import type { Reading } from './phonology';
 
 export const RESEARCH_SAMPLE_RATE = 48_000;
+export const RESEARCH_VOICE_VERSION = 'v7-distinct-tones-punctuation';
+
+export type ResearchToneCategory = '平' | '上' | '去' | '入';
+
+// 这些目标只把多调方言中可听的音域、方向和拐点差异用作声学工程参照，
+// 不是将任何一种现代方言的调值倒推为南宋调值。
+export const RESEARCH_TONE_CONTOURS: Record<ResearchToneCategory, readonly number[]> = {
+  平: [210, 209, 208],
+  上: [185, 170, 186, 252],
+  去: [258, 246, 202, 160],
+  入: [232, 222],
+};
 
 const formants: Record<string, [number, number, number, number]> = {
   i: [310, 2550, 3300, 4050], y: [320, 1850, 2750, 3900], ɨ: [390, 1650, 2650, 3900], ɯ: [390, 1250, 2450, 3850],
@@ -11,6 +23,7 @@ const formants: Record<string, [number, number, number, number]> = {
 
 const vowelPattern = /[iyɨɯeɛəʌaɑɒɐouœø]/g;
 type FormantSet = [number, number, number, number];
+type ResonatorState = { previous: number; previousPrevious: number };
 type ConsonantKind = 'stop' | 'affricate' | 'fricative' | 'nasal' | 'liquid' | 'glide' | 'none';
 type ConsonantFeature = { kind: ConsonantKind; onset: number; noiseCenter?: number; aspirated?: boolean; voiced?: boolean; locus?: FormantSet };
 
@@ -62,6 +75,7 @@ const codaLoci: Partial<Record<string, FormantSet>> = {
   m: [330, 1050, 2200, 3600], n: [350, 1750, 2700, 3800], ŋ: [360, 2250, 2900, 3900],
   p: [520, 760, 2400, 3700], t: [420, 1850, 2850, 3900], k: [380, 2200, 3000, 3900],
 };
+const formantBandwidths: FormantSet = [82, 110, 155, 220];
 const fallbackFeature: ConsonantFeature = { kind: 'none', onset: 0.026 };
 
 function featureFor(initial: string) {
@@ -90,13 +104,44 @@ function interpolate(a: number, b: number, position: number) {
   return a + (b - a) * position;
 }
 
-function tonePitch(reading: Reading, position: number) {
-  if (reading.position.endsWith('入')) return 218 - position * 12;
-  if (reading.tone === 3) return interpolate(185, 238, position);
-  if (reading.tone === 4) return interpolate(238, 178, position);
-  if (reading.tone === 2) return interpolate(195, 225, position);
-  return interpolate(214, 196, position);
+// A compact source-filter oscillator: an asymmetric glottal-flow pulse feeds a
+// cascade of time-varying formant resonators. This is an engineering model in
+// the spirit of classic formant synthesis, not a reconstruction of a historic
+// speaker's vocal tract.
+function glottalFlow(cycle: number) {
+  const openingEnd = 0.56;
+  const closingEnd = 0.78;
+  if (cycle < openingEnd) return 0.5 - 0.5 * Math.cos(Math.PI * cycle / openingEnd);
+  if (cycle < closingEnd) return Math.cos(Math.PI / 2 * (cycle - openingEnd) / (closingEnd - openingEnd));
+  return 0;
 }
+
+function resonate(input: number, frequency: number, bandwidth: number, sampleRate: number, state: ResonatorState) {
+  const radius = Math.exp(-Math.PI * bandwidth / sampleRate);
+  const output = (1 - radius) * input
+    + 2 * radius * Math.cos(Math.PI * 2 * frequency / sampleRate) * state.previous
+    - radius * radius * state.previousPrevious;
+  state.previousPrevious = state.previous;
+  state.previous = output;
+  return output;
+}
+
+export function researchToneCategory(reading: Reading): ResearchToneCategory {
+  const category = reading.position.match(/[平上去入]$/u)?.[0];
+  return category === '上' || category === '去' || category === '入' ? category : '平';
+}
+
+export function researchTonePitch(reading: Reading, position: number) {
+  const points = RESEARCH_TONE_CONTOURS[researchToneCategory(reading)];
+  const bounded = Math.max(0, Math.min(1, position));
+  const scaled = bounded * (points.length - 1);
+  const segment = Math.min(points.length - 2, Math.floor(scaled));
+  const local = scaled - segment;
+  const eased = 0.5 - 0.5 * Math.cos(Math.PI * local);
+  return interpolate(points[segment], points[segment + 1], eased);
+}
+
+const tonePitch = researchTonePitch;
 
 function syllableSamples(reading: Reading, duration: number, sampleRate: number, index: number) {
   const ipa = toneFree(reading.ipa);
@@ -111,10 +156,12 @@ function syllableSamples(reading: Reading, duration: number, sampleRate: number,
   const onset = Math.min(Math.floor(onsetSeconds * sampleRate), Math.floor(duration * sampleRate * 0.3));
   const length = Math.max(1, Math.floor(duration * sampleRate));
   const output = new Float32Array(length);
+  const voiceTrack = new Float32Array(length);
+  const consonantTrack = new Float32Array(length);
   const random = randomGenerator(seedFrom(`${reading.character}:${reading.ipa}:${index}`));
-  const lowestPitch = 175;
-  const harmonicCount = Math.min(34, Math.floor(9_500 / lowestPitch));
   let phase = 0;
+  let previousGlottalFlow = 0;
+  const resonators: ResonatorState[] = Array.from({ length: 4 }, () => ({ previous: 0, previousPrevious: 0 }));
   let noiseLow = 0;
   let noiseHigh = 0;
   const noiseCenter = feature.noiseCenter ?? 1800;
@@ -145,25 +192,25 @@ function syllableSamples(reading: Reading, duration: number, sampleRate: number,
     }
     const codaLocus = codaLoci[coda];
     const codaTransitionStart = entering ? 0.62 : 0.73;
+    let codaDamping = 1;
     if (codaLocus && overall > codaTransitionStart) {
       const codaTransition = Math.min(1, (overall - codaTransitionStart) / (1 - codaTransitionStart));
-      currentFormants = currentFormants.map((frequency, formantIndex) => interpolate(frequency, codaLocus[formantIndex], codaTransition)) as FormantSet;
+      const locusBlend = codaTransition * (entering ? 0.62 : 0.82);
+      currentFormants = currentFormants.map((frequency, formantIndex) => interpolate(frequency, codaLocus[formantIndex], locusBlend)) as FormantSet;
+      codaDamping = interpolate(1, entering ? 0.18 : 0.62, Math.pow(codaTransition, 1.15));
     }
-    let voiced = 0;
-    let weightTotal = 0;
-    for (let harmonic = 1; harmonic <= harmonicCount; harmonic += 1) {
-      const frequency = pitch * harmonic;
-      const spectralTilt = (harmonic % 2 === 0 ? 0.90 : 1.03) / Math.pow(harmonic, 1.36);
-      const resonance = currentFormants.reduce((sum, formant, formantIndex) => {
-        const bandwidth = [95, 135, 180, 240][formantIndex];
-        const distance = (frequency - formant) / bandwidth;
-        return sum + [1.0, 0.72, 0.38, 0.18][formantIndex] * Math.exp(-0.5 * distance * distance);
-      }, 0);
-      const weight = spectralTilt * (0.2 + resonance * 2.4);
-      voiced += Math.sin(phase * harmonic) * weight;
-      weightTotal += weight;
+    const cycle = (phase / (Math.PI * 2)) % 1;
+    const flow = glottalFlow(cycle);
+    // Differentiating glottal flow approximates lip radiation. Scaling by the
+    // period keeps the excitation level stable while the lexical tone moves F0.
+    const excitation = (flow - previousGlottalFlow) * sampleRate / pitch;
+    previousGlottalFlow = flow;
+    let filteredVoice = excitation * 0.22;
+    for (let formantIndex = 0; formantIndex < resonators.length; formantIndex += 1) {
+      filteredVoice = resonate(filteredVoice, currentFormants[formantIndex], formantBandwidths[formantIndex], sampleRate, resonators[formantIndex]);
     }
-    voiced /= Math.max(0.001, weightTotal);
+
+    let voiced = filteredVoice * 90;
     if (/[mnŋ]/.test(coda) && overall > 0.76) {
       const nasalBlend = Math.min(0.78, (overall - 0.76) / 0.24 * 0.78);
       const nasalVoice = Math.sin(phase) * 0.72 + Math.sin(phase * 2) * 0.16;
@@ -179,23 +226,39 @@ function syllableSamples(reading: Reading, duration: number, sampleRate: number,
     if (sampleIndex < onset) {
       const onsetPosition = sampleIndex / Math.max(1, onset);
       const onsetBell = Math.sin(onsetPosition * Math.PI);
-      if (feature.kind === 'fricative') consonant = shapedNoise * 0.17 * onsetBell + (feature.voiced ? Math.sin(phase) * 0.045 : 0);
+      if (feature.kind === 'fricative') consonant = shapedNoise * 0.23 * onsetBell + (feature.voiced ? Math.sin(phase) * 0.050 : 0);
       if (feature.kind === 'stop') {
         if (feature.voiced && onsetPosition < 0.56) consonant += Math.sin(phase) * 0.1;
-        if (onsetPosition > 0.58 && onsetPosition < 0.68) consonant += shapedNoise * 0.52 * Math.sin((onsetPosition - 0.58) / 0.10 * Math.PI);
-        if (feature.aspirated && onsetPosition >= 0.66) consonant += shapedNoise * 0.085 * Math.sin((onsetPosition - 0.66) / 0.34 * Math.PI);
+        if (onsetPosition > 0.58 && onsetPosition < 0.68) consonant += shapedNoise * 0.66 * Math.sin((onsetPosition - 0.58) / 0.10 * Math.PI);
+        if (feature.aspirated && onsetPosition >= 0.66) consonant += shapedNoise * 0.17 * Math.sin((onsetPosition - 0.66) / 0.34 * Math.PI);
       }
       if (feature.kind === 'affricate') {
         if (feature.voiced && onsetPosition < 0.32) consonant += Math.sin(phase) * 0.08;
-        if (onsetPosition > 0.34 && onsetPosition < 0.45) consonant += shapedNoise * 0.43 * Math.sin((onsetPosition - 0.34) / 0.11 * Math.PI);
-        if (onsetPosition > 0.42) consonant += shapedNoise * (feature.aspirated ? 0.17 : 0.13) * Math.sin((onsetPosition - 0.42) / 0.58 * Math.PI);
+        if (onsetPosition > 0.34 && onsetPosition < 0.45) consonant += shapedNoise * 0.58 * Math.sin((onsetPosition - 0.34) / 0.11 * Math.PI);
+        if (onsetPosition > 0.42) consonant += shapedNoise * (feature.aspirated ? 0.25 : 0.19) * Math.sin((onsetPosition - 0.42) / 0.58 * Math.PI);
       }
       if (feature.kind === 'nasal') consonant = Math.sin(phase) * 0.16 + Math.sin(phase * 2) * 0.04;
       if (feature.kind === 'liquid' || feature.kind === 'glide') consonant = Math.sin(phase) * 0.11;
     }
     const shimmer = 0.994 + 0.006 * Math.sin(Math.PI * 2 * 4.3 * seconds + index * 0.37);
-    const breath = noise * 0.0025 * vowelEnvelope;
-    output[sampleIndex] = (voiced * 0.72 * shimmer * vowelEnvelope + consonant + breath) * envelope;
+    const breath = noise * 0.0012 * vowelEnvelope;
+    voiceTrack[sampleIndex] = voiced * 0.72 * shimmer * vowelEnvelope * envelope * codaDamping;
+    consonantTrack[sampleIndex] = (consonant + breath) * envelope;
+  }
+
+  // Formant filters can have very different gains at different F0/vowel
+  // combinations. Equalise only the stable vowel track before mixing the
+  // consonant track so stops and fricatives stay audible without making some
+  // vowels collapse into a whisper.
+  const coreStart = Math.min(length - 1, onset + Math.floor(0.070 * sampleRate));
+  const coreEnd = Math.max(coreStart + 1, Math.floor(length * (entering ? 0.58 : 0.76)));
+  let coreSquareSum = 0;
+  for (let sampleIndex = coreStart; sampleIndex < coreEnd; sampleIndex += 1) coreSquareSum += voiceTrack[sampleIndex] * voiceTrack[sampleIndex];
+  const coreRms = Math.sqrt(coreSquareSum / Math.max(1, coreEnd - coreStart));
+  const voiceGain = Math.max(0.55, Math.min(18, 0.18 / Math.max(0.001, coreRms)));
+  for (let sampleIndex = 0; sampleIndex < length; sampleIndex += 1) {
+    const limitedConsonant = Math.tanh(consonantTrack[sampleIndex] / 0.38) * 0.38;
+    output[sampleIndex] = voiceTrack[sampleIndex] * voiceGain + limitedConsonant;
   }
 
   // 入聲提前向 /p t k/（或候選喉塞）閉鎖，末段完全靜音且不除阻。
@@ -221,12 +284,14 @@ export function renderResearchVoice(
   durationFor: (reading: Reading, index: number) => number,
   gapFor: (index: number) => number,
   sampleRate = RESEARCH_SAMPLE_RATE,
+  initialGapMs = 0,
 ) {
   const syllables = readings.map((reading, index) => syllableSamples(reading, durationFor(reading, index), sampleRate, index));
   const totalLength = syllables.reduce((total, samples, index) => total + samples.length + Math.floor(gapFor(index) / 1000 * sampleRate), Math.floor(0.06 * sampleRate));
-  const output = new Float32Array(totalLength);
+  const initialGapSamples = Math.floor(Math.max(0, initialGapMs) / 1000 * sampleRate);
+  const output = new Float32Array(totalLength + initialGapSamples);
   const enteringSilences: Array<[number, number]> = [];
-  let cursor = Math.floor(0.04 * sampleRate);
+  let cursor = Math.floor(0.04 * sampleRate) + initialGapSamples;
   syllables.forEach((samples, index) => {
     output.set(samples, cursor);
     if (readings[index].position.endsWith('入')) {

@@ -1,13 +1,71 @@
 import assert from 'node:assert/strict';
 import { prosodyOf, readingsFor } from '../app/lib/phonology.ts';
-import { RESEARCH_SAMPLE_RATE, renderResearchVoice, waveBlob } from '../app/lib/synth.ts';
+import { RESEARCH_SAMPLE_RATE, RESEARCH_VOICE_VERSION, renderResearchVoice, researchTonePitch, waveBlob } from '../app/lib/synth.ts';
+import { gapAfterReadingMs, leadingPunctuationPauseMs, punctuationTiming } from '../app/lib/timing.ts';
+process.on('uncaughtException', (error) => {
+  const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  console.error(`::error file=scripts/verify-research.mjs,line=1::${message.replace(/\r?\n/g, ' ')}`);
+  process.exitCode = 1;
+});
+
+
+const rms = (samples) => Math.sqrt(samples.reduce((sum, sample) => sum + sample * sample, 0) / Math.max(1, samples.length));
+const windowOf = (samples, start, end) => samples.slice(Math.floor(start * RESEARCH_SAMPLE_RATE), Math.floor(end * RESEARCH_SAMPLE_RATE));
+const differenceRms = (samples) => {
+  let squareSum = 0;
+  for (let index = 1; index < samples.length; index += 1) squareSum += (samples[index] - samples[index - 1]) ** 2;
+  return Math.sqrt(squareSum / Math.max(1, samples.length - 1));
+};
+const spectralCentroid = (samples) => {
+  let energySum = 0;
+  let weightedSum = 0;
+  for (let frequency = 200; frequency <= 8_000; frequency += 100) {
+    let real = 0;
+    let imaginary = 0;
+    for (let index = 0; index < samples.length; index += 1) {
+      const phase = Math.PI * 2 * frequency * index / RESEARCH_SAMPLE_RATE;
+      real += samples[index] * Math.cos(phase);
+      imaginary -= samples[index] * Math.sin(phase);
+    }
+    const energy = real * real + imaginary * imaginary;
+    energySum += energy;
+    weightedSum += frequency * energy;
+  }
+  return weightedSum / Math.max(Number.EPSILON, energySum);
+};
+const renderCharacter = (character) => renderResearchVoice(readingsFor(character, 'tongyu'), () => 0.63, () => 0);
 
 const text = '春眠不覺曉，處處聞啼鳥。夜來風雨聲，花落知多少。';
 const readings = readingsFor(text, 'tongyu');
+assert.equal(RESEARCH_VOICE_VERSION, 'v7-distinct-tones-punctuation');
 assert.ok(readings.every((reading) => reading.confidence === 'B'), '宋代文人通语基线应标为 B');
 assert.equal(readings.length, 20);
 assert.ok(readings.find((reading) => reading.character === '不')?.position.endsWith('入'));
 assert.ok(readings.find((reading) => reading.character === '覺')?.position.endsWith('入'));
+// 调形目标只锁定声学可分性，不把工程曲线当作历史调值验证。
+const toneReading = (category) => readings.find((reading) => reading.position.endsWith(category));
+const flat = toneReading('平');
+const rise = toneReading('上');
+const fall = toneReading('去');
+const checked = toneReading('入');
+assert.ok(flat && rise && fall && checked, '样本必须覆盖平上去入');
+
+const flatPitches = [0, 0.5, 1].map((position) => researchTonePitch(flat, position));
+assert.ok(Math.max(...flatPitches) - Math.min(...flatPitches) <= 4, '平声应保持高平');
+const riseValley = researchTonePitch(rise, 1 / 3);
+assert.ok(riseValley + 10 < researchTonePitch(rise, 0), '上声前段必须先抑');
+assert.ok(researchTonePitch(rise, 1) - riseValley > 75, '上声末段必须显著扬起');
+assert.ok(researchTonePitch(fall, 0) - researchTonePitch(fall, 1) > 85, '去声必须高起陡降');
+assert.ok(researchTonePitch(rise, 1) > researchTonePitch(flat, 1) + 25 && researchTonePitch(flat, 1) > researchTonePitch(fall, 1) + 45, '舒声终点必须可分');
+
+const punctuation = punctuationTiming('，春……眠!');
+assert.equal(punctuation.beforeFirst, 1);
+assert.equal(punctuation.totalMarks, 4);
+assert.equal(punctuation.afterReading.get(0), 2);
+assert.equal(punctuation.afterReading.get(1), 1);
+assert.equal(leadingPunctuationPauseMs(punctuation, 1), 630);
+assert.equal(gapAfterReadingMs(0, punctuation, 1), 1260);
+assert.equal(gapAfterReadingMs(1, punctuation, 1), 630);
 
 const endings = ['曉', '鳥', '聲', '少'].map((character) => prosodyOf(readings.findLast((reading) => reading.character === character)));
 assert.equal(endings[0].pingshui, '上聲十七篠');
@@ -37,4 +95,34 @@ const enteringEnd = Math.floor((0.04 + 0.39) * RESEARCH_SAMPLE_RATE);
 const silentTail = enteringAudio.slice(enteringEnd - Math.floor(0.012 * RESEARCH_SAMPLE_RATE), enteringEnd);
 assert.ok(silentTail.every((sample) => sample === 0), '入声末尾必须保留无释放闭锁静音');
 
-console.log(`research verification passed: ${readings.length} syllables, ${(first.length / RESEARCH_SAMPLE_RATE).toFixed(2)} s, peak ${peak.toFixed(3)}`);
+// 声学代理指标只防止工程退步，不等于真实听辨或历史音值验证。
+const labialStop = renderCharacter('巴');
+const aspiratedLabialStop = renderCharacter('怕');
+const alveolarStop = renderCharacter('都');
+const velarStop = renderCharacter('家');
+const stableLabialVowel = windowOf(labialStop, 0.18, 0.45);
+const relativeRoughness = differenceRms(stableLabialVowel) / rms(stableLabialVowel);
+assert.ok(relativeRoughness < 0.121, `稳态元音高频粗糙度回退：${relativeRoughness.toFixed(3)}`);
+
+const unaspiratedTail = rms(windowOf(labialStop, 0.084, 0.092));
+const aspiratedTail = rms(windowOf(aspiratedLabialStop, 0.084, 0.092));
+assert.ok(aspiratedTail > 0.01 && aspiratedTail > unaspiratedTail * 100,
+  `送气段必须与不送气闭锁明显分离：${unaspiratedTail.toFixed(5)} / ${aspiratedTail.toFixed(5)}`);
+
+const burstWindow = (samples) => windowOf(samples, 0.070, 0.079);
+const labialCentroid = spectralCentroid(burstWindow(labialStop));
+const velarCentroid = spectralCentroid(burstWindow(velarStop));
+const alveolarCentroid = spectralCentroid(burstWindow(alveolarStop));
+assert.ok(labialCentroid + 900 < velarCentroid && velarCentroid + 700 < alveolarCentroid,
+  `塞音爆破频谱次序异常：${labialCentroid.toFixed(0)} / ${velarCentroid.toFixed(0)} / ${alveolarCentroid.toFixed(0)} Hz`);
+
+for (const character of ['沙', '叉', '花']) {
+  const onsetRms = rms(windowOf(renderCharacter(character), 0.050, 0.105));
+  assert.ok(onsetRms > 0.02, `${character} 的摩擦／塞擦起始过弱：${onsetRms.toFixed(3)}`);
+}
+for (const character of ['巴', '都', '家', '搭', '發', '格']) {
+  const vowelRms = rms(windowOf(renderCharacter(character), 0.18, 0.36));
+  assert.ok(vowelRms > 0.18 && vowelRms < 0.29, `${character} 的稳态元音响度异常：${vowelRms.toFixed(3)}`);
+}
+
+console.log(`research verification passed: ${readings.length} syllables, ${(first.length / RESEARCH_SAMPLE_RATE).toFixed(2)} s, peak ${peak.toFixed(3)}, roughness ${relativeRoughness.toFixed(3)}, stops ${labialCentroid.toFixed(0)}/${velarCentroid.toFixed(0)}/${alveolarCentroid.toFixed(0)} Hz`);
