@@ -65,22 +65,22 @@ const silentTail = enteringAudio.slice(enteringEnd - Math.floor(0.012 * RESEARCH
 assert.ok(silentTail.every((sample) => sample === 0), '入声末尾必须保留无释放闭锁静音');
 
 // 声学代理指标只防止工程退步，不等于真实听辨或历史音值验证。
-const pa = renderCharacter('巴');
-const aspiratedPa = renderCharacter('怕');
-const ta = renderCharacter('都');
-const ka = renderCharacter('家');
-const stablePa = windowOf(pa, 0.18, 0.45);
-const relativeRoughness = differenceRms(stablePa) / rms(stablePa);
+const labialStop = renderCharacter('巴');
+const aspiratedLabialStop = renderCharacter('怕');
+const alveolarStop = renderCharacter('都');
+const velarStop = renderCharacter('家');
+const stableLabialVowel = windowOf(labialStop, 0.18, 0.45);
+const relativeRoughness = differenceRms(stableLabialVowel) / rms(stableLabialVowel);
 assert.ok(relativeRoughness < 0.121, `稳态元音高频粗糙度回退：${relativeRoughness.toFixed(3)}`);
 
-const unaspiratedTail = rms(windowOf(pa, 0.084, 0.092));
-const aspiratedTail = rms(windowOf(aspiratedPa, 0.084, 0.092));
+const unaspiratedTail = rms(windowOf(labialStop, 0.084, 0.092));
+const aspiratedTail = rms(windowOf(aspiratedLabialStop, 0.084, 0.092));
 assert.ok(aspiratedTail > 0.01 && aspiratedTail > unaspiratedTail * 100, '送气段必须与不送气闭锁明显分离');
 
 const burstWindow = (samples) => windowOf(samples, 0.070, 0.079);
-const labialCentroid = spectralCentroid(burstWindow(pa));
-const velarCentroid = spectralCentroid(burstWindow(ka));
-const alveolarCentroid = spectralCentroid(burstWindow(ta));
+const labialCentroid = spectralCentroid(burstWindow(labialStop));
+const velarCentroid = spectralCentroid(burstWindow(velarStop));
+const alveolarCentroid = spectralCentroid(burstWindow(alveolarStop));
 assert.ok(labialCentroid + 900 < velarCentroid && velarCentroid + 700 < alveolarCentroid,
   `塞音爆破频谱次序异常：${labialCentroid.toFixed(0)} / ${velarCentroid.toFixed(0)} / ${alveolarCentroid.toFixed(0)} Hz`);
 

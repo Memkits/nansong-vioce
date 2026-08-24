@@ -6,6 +6,7 @@ import { RESEARCH_SAMPLE_RATE, RESEARCH_VOICE_VERSION, renderResearchVoice, wave
 const sampleText = '明月幾時有，把酒問青天。不知天上宮闕，今夕是何年。';
 const toTraditional = OpenCC.Converter({ from: 'cn', to: 't' });
 const neuralModel = 'onnx-community/Kokoro-82M-v1.1-zh-ONNX';
+const interCharacterGapMs = 40;
 const neuralVoicePath = `https://huggingface.co/${neuralModel}/resolve/main/voices`;
 const neuralRuntime = 'https://cdn.jsdelivr.net/npm/@uzen/kokoro-js@1.2.4/dist/kokoro.web.js';
 type NeuralAudio = { toBlob: () => Blob };
@@ -95,7 +96,7 @@ export default function Home() {
     const basic = (entering ? 0.39 : 0.63) / rate;
     return emphasizeRhyme && rhymeFinals.has(index) ? basic * (entering ? 1.08 : 1.20) : basic;
   };
-  const gapFor = (index: number) => rhymeFinals.has(index) ? pause : 40;
+  const gapFor = (index: number) => rhymeFinals.has(index) ? pause : interCharacterGapMs;
 
   useEffect(() => () => {
     window.speechSynthesis.cancel();
@@ -180,7 +181,7 @@ export default function Home() {
     window.speechSynthesis.cancel(); window.speechSynthesis.speak(utterance);
   }
   function downloadAnnotation() {
-    const payload = { system: '宋词文人通语与南宋临安朗读系统', profile: profiles[profile], dataVersion: '0.9.0-experimental', createdAt: new Date().toISOString(), sourceText: text, analysisText, readings, sentenceData, dominantRhyme, emphasizeRhyme, audio: { sampleRate: RESEARCH_SAMPLE_RATE, renderer: RESEARCH_VOICE_VERSION, characterPaddingMs: 20, neuralProxy: neuralModel } };
+    const payload = { system: '宋词文人通语与南宋临安朗读系统', profile: profiles[profile], dataVersion: '0.9.0-experimental', createdAt: new Date().toISOString(), sourceText: text, analysisText, readings, sentenceData, dominantRhyme, emphasizeRhyme, audio: { sampleRate: RESEARCH_SAMPLE_RATE, renderer: RESEARCH_VOICE_VERSION, playbackRate: rate, interCharacterGapMs, sentencePauseMs: pause, neuralProxy: neuralModel } };
     const href = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
     const anchor = document.createElement('a'); anchor.href = href; anchor.download = 'nansong-phonology-annotation.json'; anchor.click(); URL.revokeObjectURL(href);
   }
