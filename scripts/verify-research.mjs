@@ -2,6 +2,12 @@ import assert from 'node:assert/strict';
 import { prosodyOf, readingsFor } from '../app/lib/phonology.ts';
 import { RESEARCH_SAMPLE_RATE, RESEARCH_VOICE_VERSION, renderResearchVoice, researchTonePitch, waveBlob } from '../app/lib/synth.ts';
 import { gapAfterReadingMs, leadingPunctuationPauseMs, punctuationTiming } from '../app/lib/timing.ts';
+process.on('uncaughtException', (error) => {
+  const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  console.error(`::error file=scripts/verify-research.mjs,line=1::${message.replace(/\r?\n/g, ' ')}`);
+  process.exitCode = 1;
+});
+
 
 const rms = (samples) => Math.sqrt(samples.reduce((sum, sample) => sum + sample * sample, 0) / Math.max(1, samples.length));
 const windowOf = (samples, start, end) => samples.slice(Math.floor(start * RESEARCH_SAMPLE_RATE), Math.floor(end * RESEARCH_SAMPLE_RATE));
