@@ -41,6 +41,20 @@ button, textarea, input { font: inherit; } button { cursor: pointer; }
 @media (max-width: 780px) { .prosody-section { padding: 52px 0 10px; }.prosody-heading { display: block; }.prosody-heading > p { margin-top: 14px; }.sentence-grid { grid-template-columns: 1fr 1fr; } }
 .voice-panel .sliders label:nth-child(2) { display: none; }
 .voice-panel .sliders { grid-template-columns: 1fr; }
-.mode-tabs button:first-child small { font-size: 0; }
-.mode-tabs button:first-child small::after { content: 'IPA 可控 · v7'; font-size: 10px; }
+.mode-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ipa-lab { margin-top: 20px; font-size: 14px; line-height: 1.65; }
+.ipa-lab p { margin: 12px 0; }
+.ipa-lab > b { color: #e3b36e; font-size: 16px; }
+.ipa-lab small { display: block; overflow-wrap: anywhere; color: #d8cfc0; }
+.ipa-warning { padding: 10px; border-left: 3px solid #d39b47; background: #393631; }
+.ipa-consent { display: flex; gap: 8px; align-items: flex-start; margin: 16px 0; }
+.ipa-consent input { margin-top: 6px; accent-color: #d39b47; }
+.ipa-lab summary { cursor: pointer; }
+.ipa-audit { max-height: 260px; overflow: auto; margin: 12px 0; }
+.ipa-audit > div { border-bottom: 1px solid #5b564e; padding: 8px 0; }
+.ipa-audit code { margin-left: 10px; overflow-wrap: anywhere; }
+.ipa-lab .player-row { flex-wrap: wrap; margin: 16px 0; }
+.ipa-lab button:disabled { opacity: .5; cursor: not-allowed; }
+.ipa-quality { display: grid; gap: 8px; margin: 16px 0; }
+.ipa-quality select { width: 100%; min-width: 0; color: #f7f1e5; background: #393631; border: 1px solid #81786c; padding: 8px; font-size: 14px; }
 .timing-note { margin: 14px 0 0; padding: 10px 12px; color: #5f584e; background: #eee5d7; border-left: 3px solid var(--jade); font-size: 11px; line-height: 1.7; }

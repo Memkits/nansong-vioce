@@ -25,6 +25,15 @@
 | 苏州话研究语料 | [WenetSpeech-Wu](https://github.com/ASLP-lab/WenetSpeech-Wu-Repo)；[MagicData Dialect Wu Chinese TTS Lite](https://huggingface.co/datasets/MagicHub/magicdata-dialect-wu-chinese-tts-lite) | WenetSpeech-Wu 仓库 Apache-2.0；MagicData 音频正文 CC BY-NC-ND 4.0 | 前者含约 8,000 小时八种吴语及苏州 benchmark；后者含苏州女性单说话人约 10 分钟、48 kHz WAV | 本版未下载、未打包；MagicData 不可作商业训练或改编发布，且一位说话人不足以定参数 |
 | 粤语入声与语料 | 粤语声学研究；[Mozilla Common Voice Cantonese](https://commonvoice.mozilla.org/data)；[WenetSpeech-Yue](https://github.com/ASLP-lab/WenetSpeech-Yue) | Common Voice 26.0 / CC0-1.0；WenetSpeech-Yue 数据页 CC BY-NC-4.0 | `/p t k/` 不除阻塞尾和短时值作类型学对照；公开语料可用于统计韵尾闭锁与时长分布 | 现代粤语不是宋代吴地口音；只支持“短＋闭锁＋无释放”的工程实现，不支持具体历史音值 |
 
+## 免训练音素实验资源（2026-09）
+
+- [Kokoro-82M-v1.0-ONNX](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX)：模型页标注 Apache-2.0；默认 FP32 权重（约 326 MB），另有 Q8 对照（约 92.4 MB），加 `af_heart` 现代女声风格（约 0.52 MB）。权重、词表、声线固定到 `1939ad2a8e416c0acfeecc08a694d14ef25f2231`。本次自行下载用于 CPU／WASM 推理，不下载训练集，不作训练，权重不提交 Git。
+- [固定音素词表](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/blob/1939ad2a8e416c0acfeecc08a694d14ef25f2231/tokenizer.json)：逐 token 核对防止 normalizer 静默删符号。词表覆盖不是声学覆盖；`ʐ/ʑ/ˤ` 不能原样表示，近似默认关闭。仅分离源方案调号，不删除鼻化等附加符号。
+- [Transformers.js](https://github.com/huggingface/transformers.js)：3.8.1／Apache-2.0，经 Web Worker 按需载入，固定模型修订，本机 WebGPU 或单线程 WASM 推理。开发用 CPU 包不进入静态网页；新增传递依赖 sharp 锁到 0.35.0，避免旧图像库安全问题，网页语音路线不使用图像解码。
+- 声学证据等级仍为 D。未证明罕见音素、送气／浊音、鼻韵尾或 `/p t k/` 准确；没有将美国女声风格当作宋代口音；尚未施加研究模式的声调与入声时值。保留“未经验证”入口和原有 v7 默认模式。
+
+本轮测试方法和输出文件说明见 README 的“免训练音素女声实验”。后续检验以实际音素听辨与声学指标为准，不能只看模型名、采样率或波形是否不同。
+
 ## 韵书使用政策
 
 1. 页面同时保存三件不同的事：《广韵》原始韵目、切韵系音韵地位中的韵基、平水 106 韵标签。
@@ -43,4 +52,4 @@
 1. 将《附释文互注礼部韵略》及刘渊 107 韵逐项结构化，明确 106／107 韵差别。
 2. 建立跨地域宋词的“作者—作品—年代—词牌—韵段—韵脚—通押”语料表，先编码宋词通语主体，再标地域例外。
 3. 逐条整理宋人音注、《韵镜》《七音略》《四声等子》《古今韵会举要》及杭州方言史；金华资料只作比较层。
-4. 若要求自然女声，在保留当前可控 DSP 作校音器的同时，寻找有许可证、可接收 IPA／音素时长且覆盖目标音系的女声模型；当前 Kokoro 只能作为普通话对照。
+4. 保留可控 DSP 作校音器，先检验新增 Kokoro v1.0 音素实验的声学覆盖，再研究时长与声调控制；原有 v1.1 中文代理仍只作普通话对照。

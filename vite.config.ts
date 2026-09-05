@@ -8,5 +8,6 @@ export default defineConfig({
   base: './',
   css: { postcss: { plugins: [tailwindcss()] } },
   plugins: [react()],
+  worker: { format: 'es' },
   server: { host: '127.0.0.1' },
 });

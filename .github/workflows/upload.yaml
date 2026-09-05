@@ -26,6 +26,9 @@ jobs:
       - name: Verify phonology data and deterministic audio
         run: npm run test:research
 
+      - name: Verify experimental IPA mapping and audio guards (no model download)
+        run: npm run test:neural-ipa
+
       - name: Lint
         run: npm run lint
 
