@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { mock } from 'node:test';
+import { closeIpaAudioContext, releaseIpaPlayback, withIpaDownloadTimeout } from '../app/lib/ipa-browser.ts';
 import { readingsFor } from '../app/lib/phonology.ts';
 import { probeReading, assertTokenIdentity, prepareNeuralClip, assembleNeuralClips, makeIpaBatches, IPA_SAMPLE_RATE } from '../app/lib/neural-ipa.ts';
 import { gapAfterReadingMs, leadingPunctuationPauseMs, punctuationTiming } from '../app/lib/timing.ts';
@@ -72,4 +74,73 @@ for (const text of ['言元', '六力', '先宣']) {
   assert.notDeepEqual(pair[0].ids, pair[1].ids, `${text} 音段区别不能在模型输入中丢失`);
   pair.forEach((p) => assertTokenIdentity(p, p.ids.map(BigInt)));
 }
-console.log('IPA audit, explicit approximation, token identity, waveform guards and punctuation tests passed. Not a listening/phonology validation.');
+// Simulate partial initialization and repeated cleanup without a browser/model.
+const cleanupCalls = [];
+const unstarted = {
+  onended: () => assert.fail('stale callback must be detached'),
+  stop() { cleanupCalls.push('stop-unstarted'); throw new DOMException('not started', 'InvalidStateError'); },
+  disconnect() { cleanupCalls.push('disconnect-unstarted'); throw new Error('already disconnected'); },
+};
+const started = {
+  onended: () => {},
+  stop() { cleanupCalls.push('stop-started'); },
+  disconnect() { cleanupCalls.push('disconnect-started'); },
+};
+const resources = {
+  worker: { current: { terminate() { cleanupCalls.push('terminate'); } } },
+  context: { current: { state: 'running', close() { cleanupCalls.push('close'); return Promise.reject(new Error('close failed')); } } },
+  sources: new Set([unstarted, started]),
+};
+assert.doesNotThrow(() => releaseIpaPlayback(resources));
+assert.deepEqual(cleanupCalls, ['terminate', 'stop-unstarted', 'disconnect-unstarted', 'stop-started', 'disconnect-started', 'close']);
+assert.equal(unstarted.onended, null);
+assert.equal(started.onended, null);
+assert.equal(resources.sources.size, 0);
+assert.equal(resources.worker.current, null);
+assert.equal(resources.context.current, null);
+releaseIpaPlayback(resources);
+assert.equal(cleanupCalls.length, 6, '重复清理不得重复访问已释放资源');
+assert.doesNotThrow(() => closeIpaAudioContext({ state: 'closed', close() { assert.fail('closed context'); } }));
+assert.doesNotThrow(() => closeIpaAudioContext({ state: 'running', close() { throw new Error('sync close failure'); } }));
+let closedAfterWorkerFailure = false;
+releaseIpaPlayback({
+  worker: { current: { terminate() { throw new Error('worker failure'); } } },
+  context: { current: { state: 'running', close() { closedAfterWorkerFailure = true; return Promise.resolve(); } } },
+  sources: new Set(),
+});
+assert.ok(closedAfterWorkerFailure);
+// Allow rejected close promises to settle; unhandled rejections fail the script.
+await new Promise((resolve) => setImmediate(resolve));
+
+const timeoutDescriptor = Object.getOwnPropertyDescriptor(AbortSignal, 'timeout');
+Object.defineProperty(AbortSignal, 'timeout', { configurable: true, value: undefined });
+mock.timers.enable({ apis: ['setTimeout'] });
+try {
+  let signal;
+  const download = withIpaDownloadTimeout(async (s) => {
+    signal = s;
+    // Headers arrived, but consuming the body still needs the timeout.
+    await Promise.resolve();
+    return new Promise((_, reject) => s.addEventListener('abort', () => reject(s.reason), { once: true }));
+  });
+  const rejected = assert.rejects(download, { name: 'TimeoutError' });
+  await Promise.resolve();
+  mock.timers.tick(89_999);
+  assert.equal(signal.aborted, false);
+  mock.timers.tick(1);
+  await rejected;
+  assert.equal(signal.aborted, true);
+
+  let completedSignal;
+  assert.equal(await withIpaDownloadTimeout(async (s) => { completedSignal = s; return 42; }), 42);
+  let failedSignal;
+  await assert.rejects(withIpaDownloadTimeout((s) => { failedSignal = s; throw new Error('network failed'); }), /network failed/);
+  mock.timers.tick(90_000);
+  assert.equal(completedSignal.aborted, false, '成功后必须清除超时定时器');
+  assert.equal(failedSignal.aborted, false, '失败后必须清除超时定时器');
+} finally {
+  mock.timers.reset();
+  if (timeoutDescriptor) Object.defineProperty(AbortSignal, 'timeout', timeoutDescriptor);
+  else delete AbortSignal.timeout;
+}
+console.log('IPA audit, token identity, waveform/punctuation guards, playback cleanup and download timeout tests passed. Not a listening/phonology validation.');

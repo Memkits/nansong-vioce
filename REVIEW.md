@@ -4,6 +4,14 @@
 
 ## 结论
 
+### PR #2 浏览器健壮性 review 修复
+
+- 手动停止、异常退出与 effect 卸载共用清理逻辑：先清空引用与节点集合，移除回调，逐个保护 stop／disconnect，并处理 AudioContext.close 的同步错误和 Promise 拒绝。单个节点失败不再中断其余资源释放。
+- 原评论将“已经结束”直接等同于 stop 抛错并不精确；[Web Audio 规范](https://webaudio.github.io/web-audio-api/#dom-audioscheduledsourcenode-stop)规定结束后 stop 无效，未调用 start 才会抛 InvalidStateError。此处真正需要保护的是节点已登记但 connect／start 失败的半初始化路径。
+- 声线下载改用 AbortController＋定时器，不依赖 AbortSignal.timeout；超时覆盖 fetch 和响应体读取，并在成功／失败后清理定时器。
+- 播放时直接向 AudioBuffer 的通道数组 set(samples)，去除临时 Float32Array 的重复分配，保留必要的缓冲区复制，不修改原始样本。
+- 无模型回归新增半初始化／重复清理、关闭失败、超时 API 缺失、响应体挂起以及定时器回收测试。这是模拟资源的自动测试，不是跨浏览器人工测试；不改变发音参数或修复已公开的声调丢失。
+
 ### 2026-09-06 吴语听感复查与 PR 边界
 
 - **提交复查：用户已确认音素女声入口，并要求提交 PR 版本。** 已复现相／想、衣／意、古／故在去调号后变为相同模型输入，原调类虽保存在元数据中，却未进入声学推理或后处理。相同上下文无法据原调区分；缓存只是复用相同输入的结果，不是根因。页面补充具体碰撞警示，回归保留源调类并报告已知缺陷，未声称声调已修复。

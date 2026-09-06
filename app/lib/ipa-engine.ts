@@ -1,5 +1,6 @@
 import { AutoTokenizer, StyleTextToSpeech2Model, Tensor } from '@huggingface/transformers';
 import { IPA_MODEL, IPA_MODEL_REVISION, IPA_VOICE, assertTokenIdentity, type IpaProbe } from './neural-ipa.ts';
+import { withIpaDownloadTimeout } from './ipa-browser.ts';
 
 export type IpaEngineOptions = {
   device: 'webgpu' | 'wasm' | 'cpu';
@@ -14,10 +15,13 @@ async function loadVoice(): Promise<Float32Array> {
   let cache: Cache | undefined;
   try { cache = await caches.open('song-ci-ipa-voice-v1'); } catch { /* Private browsing may disallow CacheStorage. */ }
   const cached = await cache?.match(url);
-  const response = cached ?? await fetch(url, { signal: AbortSignal.timeout(90_000) });
-  if (!response.ok) throw new Error(`声线下载失败：HTTP ${response.status}`);
-  const copy = response.clone();
-  const bytes = await response.arrayBuffer();
+  const { copy, bytes } = await withIpaDownloadTimeout(async (signal) => {
+    const response = cached ?? await fetch(url, { signal });
+    if (!response.ok) throw new Error(`声线下载失败：HTTP ${response.status}`);
+    const copy = response.clone();
+    const bytes = await response.arrayBuffer();
+    return { copy, bytes };
+  });
   if (bytes.byteLength !== 510 * 256 * 4) throw new Error('声线文件长度不符合固定版本，拒绝加载');
   if (!cached && cache) try { await cache.put(url, copy); } catch { /* Caching is optional. */ }
   return new Float32Array(bytes);

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Reading } from '../lib/phonology';
 import { waveBlob } from '../lib/synth';
+import { closeIpaAudioContext, releaseIpaPlayback } from '../lib/ipa-browser';
 import {
   IPA_MODEL, IPA_VOICE, IPA_SAMPLE_RATE, IPA_MAX_CHARACTERS,
   probeReading, type IpaWorkerResponse, type IpaPrecision,
@@ -27,9 +28,7 @@ export default function IpaVoiceLab({ readings, rate, gapsMs, initialGapMs, onSt
 
   function stop() {
     generation.current++;
-    worker.current?.terminate(); worker.current = null;
-    for (const node of sources.current) node.stop(); sources.current.clear();
-    void context.current?.close(); context.current = null;
+    releaseIpaPlayback({ worker, context, sources: sources.current });
     setPhase('idle');
   }
 
@@ -39,9 +38,7 @@ export default function IpaVoiceLab({ readings, rate, gapsMs, initialGapMs, onSt
     currentFingerprint.current = fingerprint;
     return () => {
       generation.current++;
-      worker.current?.terminate(); worker.current = null;
-      for (const node of activeSources) node.stop(); activeSources.clear();
-      void context.current?.close(); context.current = null;
+      releaseIpaPlayback({ worker, context, sources: activeSources });
     };
   }, [fingerprint]);
   // Remount on changed input in the parent; no stale result can be downloaded.
@@ -64,12 +61,12 @@ export default function IpaVoiceLab({ readings, rate, gapsMs, initialGapMs, onSt
       const finishIfReady = () => {
         if (complete && !sources.current.size && token === generation.current) {
           setPhase('idle');
-          void audioContext.close(); context.current = null;
+          context.current = null; closeIpaAudioContext(audioContext);
         }
       };
       const enqueueAudio = (samples: Float32Array) => {
         const buffer = audioContext.createBuffer(1, samples.length, IPA_SAMPLE_RATE);
-        buffer.copyToChannel(new Float32Array(samples), 0);
+        buffer.getChannelData(0).set(samples);
         const node = audioContext.createBufferSource(); sources.current.add(node);
         node.buffer = buffer; node.connect(audioContext.destination);
         node.onended = () => {
