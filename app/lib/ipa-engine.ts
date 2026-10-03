@@ -1,5 +1,5 @@
 import { AutoTokenizer, StyleTextToSpeech2Model, Tensor } from '@huggingface/transformers';
-import { IPA_MODEL, IPA_MODEL_REVISION, IPA_VOICE, assertTokenIdentity, type IpaProbe } from './neural-ipa.ts';
+import { IPA_MODEL, IPA_MODEL_REVISION, IPA_VOICE, IPA_VOICES, assertTokenIdentity, type IpaProbe, type IpaVoice } from './neural-ipa.ts';
 import { withIpaDownloadTimeout } from './ipa-browser.ts';
 
 export type IpaEngineOptions = {
@@ -10,8 +10,9 @@ export type IpaEngineOptions = {
   onProgress?: (message: string) => void;
 };
 
-async function loadVoice(): Promise<Float32Array> {
-  const url = `https://huggingface.co/${IPA_MODEL}/resolve/${IPA_MODEL_REVISION}/voices/${IPA_VOICE}.bin`;
+async function loadVoice(name: IpaVoice): Promise<Float32Array> {
+  if (!(name in IPA_VOICES)) throw new Error('未登记的声线');
+  const url = `https://huggingface.co/${IPA_MODEL}/resolve/${IPA_MODEL_REVISION}/voices/${name}.bin`;
   let cache: Cache | undefined;
   try { cache = await caches.open('song-ci-ipa-voice-v1'); } catch { /* Private browsing may disallow CacheStorage. */ }
   const cached = await cache?.match(url);
@@ -37,13 +38,20 @@ export async function createIpaEngine(options: IpaEngineOptions) {
   };
   // Load the tokenizer/voice first so an error cannot leak a loaded model.
   const tokenizer = await AutoTokenizer.from_pretrained(location, { revision: IPA_MODEL_REVISION, progress_callback });
-  const voice = options.voiceData ?? await loadVoice();
-  if (voice.length !== 510 * 256 || voice.some((x) => !Number.isFinite(x))) throw new Error('无效女声风格数据');
+  const voices = new Map<IpaVoice, Float32Array>();
+  const voiceFor = async (name: IpaVoice) => {
+    const voice = voices.get(name) ?? (name === IPA_VOICE ? options.voiceData : undefined) ?? await loadVoice(name);
+    if (voice.length !== 510 * 256 || voice.some((x) => !Number.isFinite(x))) throw new Error('无效女声风格数据');
+    voices.set(name, voice);
+    return voice;
+  };
+  await voiceFor(IPA_VOICE);
   const model = await StyleTextToSpeech2Model.from_pretrained(location, {
     revision: IPA_MODEL_REVISION, device: options.device, dtype: options.dtype ?? 'q8', progress_callback,
   });
   return {
-    async generate(probe: IpaProbe, speed: number): Promise<Float32Array> {
+    async generate(probe: IpaProbe, speed: number, voiceName: IpaVoice = IPA_VOICE): Promise<Float32Array> {
+      const voice = await voiceFor(voiceName);
       const { input_ids } = tokenizer(probe.phonemes, { truncation: false });
       assertTokenIdentity(probe, input_ids.data as BigInt64Array);
       const count = probe.ids.length - 2;

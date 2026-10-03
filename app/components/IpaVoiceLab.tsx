@@ -3,8 +3,8 @@ import type { Reading } from '../lib/phonology';
 import { waveBlob } from '../lib/synth';
 import { closeIpaAudioContext, releaseIpaPlayback } from '../lib/ipa-browser';
 import {
-  IPA_MODEL, IPA_VOICE, IPA_SAMPLE_RATE, IPA_MAX_CHARACTERS,
-  probeReading, type IpaWorkerResponse, type IpaPrecision,
+  IPA_MODEL, IPA_VOICES, IPA_SAMPLE_RATE, IPA_MAX_CHARACTERS,
+  probeReading, type IpaWorkerResponse, type IpaPrecision, type IpaVoice,
 } from '../lib/neural-ipa';
 
 type Props = { readings: Reading[]; rate: number; gapsMs: number[]; initialGapMs: number; onStart: () => void; onLoadSample: () => void };
@@ -13,6 +13,7 @@ export default function IpaVoiceLab({ readings, rate, gapsMs, initialGapMs, onSt
   const [allowApproximation, setAllowApproximation] = useState(false);
   const [precision, setPrecision] = useState<IpaPrecision>('fp32');
   const [grouped, setGrouped] = useState(true);
+  const [voice, setVoice] = useState<IpaVoice>('zf_xiaoxiao');
   const [status, setStatus] = useState('完整精度约 327 MB，省资源版约 93 MB；另有约 22 MB WASM。首次下载不可能保证 10 秒内完成。');
   const [phase, setPhase] = useState<'idle' | 'generating' | 'playing'>('idle');
   const [result, setResult] = useState<{ samples: Float32Array; fingerprint: string } | null>(null);
@@ -21,7 +22,7 @@ export default function IpaVoiceLab({ readings, rate, gapsMs, initialGapMs, onSt
   const sources = useRef(new Set<AudioBufferSourceNode>());
   const generation = useRef(0);
   const probes = useMemo(() => readings.map((r) => probeReading(r, allowApproximation)), [readings, allowApproximation]);
-  const fingerprint = JSON.stringify([probes, rate, gapsMs, initialGapMs, precision, grouped]);
+  const fingerprint = JSON.stringify([probes, voice, rate, gapsMs, initialGapMs, precision, grouped]);
   const currentFingerprint = useRef(fingerprint);
   const currentResult = result?.fingerprint === fingerprint ? result : null;
   const blocked = !probes.length || probes.length > IPA_MAX_CHARACTERS || probes.some((p) => p.unsupported.length);
@@ -112,7 +113,7 @@ export default function IpaVoiceLab({ readings, rate, gapsMs, initialGapMs, onSt
           finishIfReady();
         }
       };
-      instance.postMessage({ probes, speed: rate, gapsMs, initialGapMs, precision, grouped });
+      instance.postMessage({ probes, voice, speed: rate, gapsMs, initialGapMs, precision, grouped });
     } catch (error) {
       if (token === generation.current) {
         stop(); setStatus(`生成失败：${error instanceof Error ? error.message : String(error)}`);
@@ -123,13 +124,14 @@ export default function IpaVoiceLab({ readings, rate, gapsMs, initialGapMs, onSt
   function download() {
     if (!currentResult) return;
     const url = URL.createObjectURL(waveBlob(currentResult.samples, IPA_SAMPLE_RATE));
-    const link = document.createElement('a'); link.href = url; link.download = `UNVALIDATED-kokoro-ipa-${precision}-${grouped ? 'grouped' : 'syllables'}-24k.wav`; link.click();
+    const link = document.createElement('a'); link.href = url; link.download = `UNVALIDATED-kokoro-ipa-${voice}-${precision}-${grouped ? 'grouped' : 'syllables'}-24k.wav`; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   return <div className="ipa-lab">
     <b>免训练女声 · IPA 音质实验</b>
-    <p>读取本页拟音，直接输入模型音素，不把 IPA 当英文文本朗读。但当前 af_heart 是美式英语女声风格，仍可能带英语口音；不是中文、吴语或宋代真人声线。</p>
+    <p>读取本页拟音，直接输入模型音素，不把 IPA 当英文文本朗读。默认改用同一模型自带的普通话女声风格，以减少 af_heart 的英语口音；两者都不是吴语或宋代真人声线。实测调号 token 对音高影响很弱，因此仍不送入调号。</p>
+    <label className="ipa-quality">声线 <select value={voice} disabled={phase !== 'idle'} onChange={(e) => setVoice(e.target.value as IpaVoice)}>{Object.entries(IPA_VOICES).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
     <p className="ipa-warning">AI vibe coding／未经验证。此入口暂不控制平上去调形、630/390 ms 字长或入声无释放；不能替代研究合成。标点仍逐枚插入一个舒声音节的静音。</p>
     <p className="ipa-warning">已确认的区别丢失：相／想、衣／意、古／故去掉调号后输入相同，模型无法按原调区分；这不是已经验证的古代同音。更高精度不会补回声调。</p>
     <label className="ipa-quality">模型精度 <select value={precision} disabled={phase !== 'idle'} onChange={(e) => setPrecision(e.target.value as IpaPrecision)}><option value="fp32">完整精度 FP32 · 约 327 MB</option><option value="q8">省资源 Q8 · 约 93 MB</option></select></label>
@@ -149,6 +151,6 @@ export default function IpaVoiceLab({ readings, rate, gapsMs, initialGapMs, onSt
       {currentResult && <button className="export-audio" onClick={download}>下载实验 WAV（未验证）</button>}
     </div>
     {blocked && <p className="ipa-warning">请使用 1–{IPA_MAX_CHARACTERS} 个已收录汉字；不支持项见输入审计。未勾选近似时不会擅自替换。</p>}
-    <small>{IPA_MODEL} · {IPA_VOICE} · 模型 Apache-2.0 · 首次联网下载，随后本机浏览器计算。</small>
+    <small>{IPA_MODEL} · {voice} · 模型 Apache-2.0 · 首次联网下载，随后本机浏览器计算。</small>
   </div>;
 }

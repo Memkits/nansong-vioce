@@ -3,6 +3,14 @@ import type { Reading } from './phonology';
 export const IPA_MODEL = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 export const IPA_MODEL_REVISION = '1939ad2a8e416c0acfeecc08a694d14ef25f2231';
 export const IPA_VOICE = 'af_heart';
+// Same pinned v1.0 model; only the 256-d style pack differs, so switching
+// voice downloads about 0.5 MB, not another model.
+export const IPA_VOICES = {
+  af_heart: '美式英语女声（原实验）',
+  zf_xiaoxiao: '普通话女声 xiaoxiao',
+  zf_xiaoyi: '普通话女声 xiaoyi',
+} as const;
+export type IpaVoice = keyof typeof IPA_VOICES;
 export const IPA_SAMPLE_RATE = 24_000;
 export const IPA_EXPERIMENT_VERSION = 'v1-kokoro-phoneme-probe';
 export const IPA_MAX_CHARACTERS = 40;
@@ -148,7 +156,7 @@ export function assembleNeuralClips(clips: readonly Float32Array[], gapsMs: read
 }
 
 export type IpaPrecision = 'fp32' | 'q8';
-export type IpaWorkerRequest = { probes: IpaProbe[]; speed: number; gapsMs: number[]; initialGapMs: number; precision: IpaPrecision; grouped: boolean };
+export type IpaWorkerRequest = { probes: IpaProbe[]; voice: IpaVoice; speed: number; gapsMs: number[]; initialGapMs: number; precision: IpaPrecision; grouped: boolean };
 export type IpaWorkerResponse =
   | { type: 'progress'; message: string }
   | { type: 'chunk'; samples: Float32Array; index: number; backend: string }

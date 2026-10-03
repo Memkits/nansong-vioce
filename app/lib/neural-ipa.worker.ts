@@ -41,7 +41,7 @@ scope.onmessage = async ({ data }) => {
   if (busy) return;
   busy = true;
   try {
-    const { probes, speed, gapsMs, initialGapMs, precision, grouped } = data;
+    const { probes, voice, speed, gapsMs, initialGapMs, precision, grouped } = data;
     if (precision !== 'fp32' && precision !== 'q8') throw new Error('无效模型精度');
     if (!probes.length || probes.length > IPA_MAX_CHARACTERS || !Number.isFinite(speed) || speed < 0.65 || speed > 1.15) {
       throw new Error(`实验仅支持 1–${IPA_MAX_CHARACTERS} 字及 0.65–1.15 倍语速`);
@@ -55,11 +55,11 @@ scope.onmessage = async ({ data }) => {
     const clips: Float32Array[] = [];
     for (const [index, { probe }] of batches.entries()) {
       progress(`${backend} · 生成第 ${index + 1}/${batches.length} 段「${probe.character}」 ${probe.phonemes}`);
-      const key = `${probe.phonemes}/${speed}`;
+      const key = `${voice}/${probe.phonemes}/${speed}`;
       let clip = cache.get(key);
       if (!clip) {
         let audio: Float32Array;
-        try { audio = await tts.generate(probe, speed); }
+        try { audio = await tts.generate(probe, speed, voice); }
         catch (error) {
           if (!backend.startsWith('WebGPU')) throw error;
           progress('WebGPU 推理失败，切换 WASM 重试当前音节。');
@@ -67,7 +67,7 @@ scope.onmessage = async ({ data }) => {
           backend = `WASM / ${precision}`;
           enginePromise = createIpaEngine({ device: 'wasm', dtype: precision, onProgress: progress });
           tts = await enginePromise;
-          audio = await tts.generate(probe, speed);
+          audio = await tts.generate(probe, speed, voice);
         }
         clip = prepareNeuralClip(audio);
         if (clip.length > IPA_SAMPLE_RATE * 12) throw new Error('模型单段输出异常过长');
