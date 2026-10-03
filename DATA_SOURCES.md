@@ -25,6 +25,14 @@
 | 苏州话研究语料 | [WenetSpeech-Wu](https://github.com/ASLP-lab/WenetSpeech-Wu-Repo)；[MagicData Dialect Wu Chinese TTS Lite](https://huggingface.co/datasets/MagicHub/magicdata-dialect-wu-chinese-tts-lite) | WenetSpeech-Wu 仓库 Apache-2.0；MagicData 音频正文 CC BY-NC-ND 4.0 | 前者含约 8,000 小时八种吴语及苏州 benchmark；后者含苏州女性单说话人约 10 分钟、48 kHz WAV | 本版未下载、未打包；MagicData 不可作商业训练或改编发布，且一位说话人不足以定参数 |
 | 粤语入声与语料 | 粤语声学研究；[Mozilla Common Voice Cantonese](https://commonvoice.mozilla.org/data)；[WenetSpeech-Yue](https://github.com/ASLP-lab/WenetSpeech-Yue) | Common Voice 26.0 / CC0-1.0；WenetSpeech-Yue 数据页 CC BY-NC-4.0 | `/p t k/` 不除阻塞尾和短时值作类型学对照；公开语料可用于统计韵尾闭锁与时长分布 | 现代粤语不是宋代吴地口音；只支持“短＋闭锁＋无释放”的工程实现，不支持具体历史音值 |
 
+## 0.11 宋词韵部与声调控制实测（2026-10）
+
+| 层 | 来源 | 当前用途 | 证据边界 |
+| --- | --- | --- | --- |
+| 宋词通语 18 部 | 鲁国尧〈论宋词韵及其与金元词韵的比较〉的通行概括：阴声 7（支微、鱼模、皆来、萧豪、歌戈、家车、尤侯）、阳声 7（东钟、江阳、真文、寒先、庚青、侵寻、监廉）、入声 4（屋烛、铎觉、德质、月帖） | `songCiPartOf()` 按《廣韻》韵类及开合粗分派；页面主韵改用宋词部，平水 106 韵降为并列参考 | 韵类级分派，不是逐字韵谱；佳、夬、泰、灰等跨部字和作品级通叶（如德质／月帖通叶）仍需按原文与全宋词韵例校验 |
+| 韵脚驱动多音选择 | 同上 18 部 | 句号类标点前的韵脚若默认读音不在多数韵脚所属部、另一候选在，则改选并在证据中注明“韵脚推定”；人工覆写优先 | 至少三处韵脚可押同部才生效；逗号处短韵不自动改；仍需按文意校核 |
+| 声调输入实测 | Kokoro v1.0（`→ ↗ ↓ ↘` 调号 token、`zf_xiaoxiao`）与 v1.1-zh（数字调号、`zf_001`），均 Apache-2.0 | 仅作开发实测，不进入网页 | 在单字与“ta 某 ta”载体句中，改变调号对 F0 走向影响很弱且不稳定；v1.1-zh 的 q8 模型在本机 CPU 上对部分短输入输出 NaN（FP32 正常）；v1.1-zh 词表缺 `ɥ ɻ ɤ` |
+
 ## 免训练音素实验资源（2026-09）
 
 - [Kokoro-82M-v1.0-ONNX](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX)：模型页标注 Apache-2.0；默认 FP32 权重（约 326 MB），另有 Q8 对照（约 92.4 MB），加 `af_heart` 现代女声风格（约 0.52 MB）。权重、词表、声线固定到 `1939ad2a8e416c0acfeecc08a694d14ef25f2231`。本次自行下载用于 CPU／WASM 推理，不下载训练集，不作训练，权重不提交 Git。

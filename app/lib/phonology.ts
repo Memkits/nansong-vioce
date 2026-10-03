@@ -17,6 +17,8 @@ export type Reading = {
   source: 'song-derived' | 'unresolved';
   sourceRhyme: string | null;
   rime: string | null;
+  /** 切韻系開合；只用於宋詞韻部中按開合分派的少數韻。 */
+  openness: '開' | '合' | null;
 };
 
 type ToneCategory = '平' | '上' | '去' | '入';
@@ -36,7 +38,7 @@ const rhymeFamilies: RhymeFamily[] = [
   { rimes: '佳皆夬', labels: { 平: '上平九佳', 上: '上聲九蟹', 去: '去聲十卦', 入: null } },
   { rimes: '灰咍泰廢', labels: { 平: '上平十灰', 上: '上聲十賄', 去: '去聲十一隊', 入: null } },
   { rimes: '真眞諄臻', labels: { 平: '上平十一真', 上: '上聲十一軫', 去: '去聲十二震', 入: '入聲四質' } },
-  { rimes: '文欣', labels: { 平: '上平十二文', 上: '上聲十二吻', 去: '去聲十三問', 入: '入聲五物' } },
+  { rimes: '文欣殷', labels: { 平: '上平十二文', 上: '上聲十二吻', 去: '去聲十三問', 入: '入聲五物' } },
   { rimes: '元魂痕', labels: { 平: '上平十三元', 上: '上聲十三阮', 去: '去聲十四願', 入: '入聲六月' } },
   { rimes: '寒桓', labels: { 平: '上平十四寒', 上: '上聲十四旱', 去: '去聲十五翰', 入: '入聲七曷' } },
   { rimes: '刪山', labels: { 平: '上平十五刪', 上: '上聲十五潸', 去: '去聲十六諫', 入: '入聲八黠' } },
@@ -56,6 +58,42 @@ const rhymeFamilies: RhymeFamily[] = [
   { rimes: '鹽添嚴', labels: { 平: '下平十四鹽', 上: '上聲二十八儉', 去: '去聲二十九豔', 入: '入聲十六葉' } },
   { rimes: '咸銜凡', labels: { 平: '下平十五咸', 上: '上聲二十九豏', 去: '去聲三十陷', 入: '入聲十七洽' } },
 ];
+
+// 宋詞通語 18 部（魯國堯〈論宋詞韻及其與金元詞韻的比較〉的通行概括：
+// 陰聲 7、陽聲 7、入聲 4）。這是按《廣韻》韻類的粗分派，作品級例外、
+// 地域通押和跨部字（尤其佳、夬、泰、灰）仍需逐首校驗；不得用來判作品出韻。
+type SongCiPart = { name: string; rimes: string; open?: boolean; closed?: boolean; entering?: boolean; note?: string };
+const songCiParts: SongCiPart[] = [
+  { name: '東鍾', rimes: '東冬鍾' },
+  { name: '江陽', rimes: '江陽唐' },
+  { name: '支微', rimes: '支脂之微齊祭廢灰' },
+  { name: '支微', rimes: '泰', closed: true, note: '泰韻合口歸支微、開口歸皆來' },
+  { name: '魚模', rimes: '魚虞模' },
+  { name: '皆來', rimes: '皆咍夬', note: '夬韻少數字（如「話」）宋詞或入家車' },
+  { name: '皆來', rimes: '泰', open: true, note: '泰韻開口歸皆來、合口歸支微' },
+  { name: '皆來', rimes: '佳', open: true, note: '佳韻開口多歸皆來，個別字入家車' },
+  { name: '家車', rimes: '佳', closed: true, note: '佳韻合口（如「畫、掛」）多與麻韻同押' },
+  { name: '家車', rimes: '麻' },
+  { name: '真文', rimes: '真眞諄臻文欣殷魂痕' },
+  { name: '寒先', rimes: '元寒桓刪山先仙', note: '元韻宋詞歸寒先，與平水「元魂痕」不同' },
+  { name: '蕭豪', rimes: '蕭宵肴豪' },
+  { name: '歌戈', rimes: '歌戈' },
+  { name: '庚青', rimes: '庚耕清青蒸登' },
+  { name: '尤侯', rimes: '尤侯幽' },
+  { name: '侵尋', rimes: '侵' },
+  { name: '監廉', rimes: '覃談鹽添嚴咸銜凡' },
+  { name: '屋燭', rimes: '東冬鍾', entering: true },
+  { name: '鐸覺', rimes: '江陽唐', entering: true },
+  { name: '德質', rimes: '真眞諄臻文欣殷魂痕庚耕清青蒸登侵', entering: true, note: '-t、-k、-p 三類塞尾同部，提示宋詞入聲韻尾已弱化或混同' },
+  { name: '月帖', rimes: '元寒桓刪山先仙覃談鹽添嚴咸銜凡', entering: true, note: '-t、-p 兩類塞尾同部；與德質部亦常通叶' },
+];
+
+export function songCiPartOf(rime: string | null, tone: string, openness: '開' | '合' | null) {
+  if (!rime) return null;
+  const entering = tone === '入';
+  return songCiParts.find((part) => Boolean(part.entering) === entering && part.rimes.includes(rime)
+    && (!part.open || openness !== '合') && (!part.closed || openness === '合')) ?? null;
+}
 
 function toneFromCategory(tone: string): 1 | 2 | 3 | 4 {
   return tone === '上' ? 3 : tone === '去' || tone === '入' ? 4 : tone === '平' ? 1 : 2;
@@ -96,6 +134,7 @@ export function candidatesFor(character: string, profile: ProfileId): Reading[] 
         source: 'song-derived',
         sourceRhyme,
         rime,
+        openness: result.音韻地位.呼 as '開' | '合' | null,
       };
     });
   }
@@ -107,7 +146,7 @@ export function candidatesFor(character: string, profile: ProfileId): Reading[] 
     meaning: '尚未收錄',
     evidence: '此字未命中當前《廣韻》底座；請手動指定或保留待考狀態。',
     confidence: 'D', categoryConfidence: 'D', periodConfidence: 'D', regionalConfidence: 'D',
-    tone: 1, source: 'unresolved', sourceRhyme: null, rime: null,
+    tone: 1, source: 'unresolved', sourceRhyme: null, rime: null, openness: null,
   }];
 }
 
@@ -128,22 +167,66 @@ function preferredIndex(hanText: string, index: number, candidates: Reading[]) {
   return 0;
 }
 
+function partName(reading: Reading) {
+  const tone = reading.position.match(/(平|上|去|入)$/)?.[1];
+  return tone ? songCiPartOf(reading.rime, tone, reading.openness)?.name ?? null : null;
+}
+
+/**
+ * Han-character indices that close a phrase: the candidate rhyme slots.
+ * `sentenceOnly` keeps only 。！？；-closed phrases, where Song ci rhymes
+ * most reliably fall; comma-closed short rhymes are left to manual override.
+ */
+export function rhymeSlotsOf(text: string, sentenceOnly = false) {
+  const slots = new Set<number>();
+  let index = -1;
+  for (const character of Array.from(text)) {
+    if (isHan(character)) index += 1;
+    else if (index >= 0 && (sentenceOnly ? /[。！？；.!?;]/u : /\p{P}/u).test(character)) slots.add(index);
+  }
+  return slots;
+}
+
 export function readingsFor(text: string, profile: ProfileId, overrides: Record<number, number> = {}) {
   const characters = Array.from(text).filter(isHan);
   const hanText = characters.join('');
-  return characters.map((character, index) => {
-    const candidates = candidatesFor(character, profile);
-    const selected = overrides[index] ?? preferredIndex(hanText, index, candidates);
-    return candidates[Math.min(selected, candidates.length - 1)];
-  });
+  const candidateSets = characters.map((character) => candidatesFor(character, profile));
+  const chosen = candidateSets.map((candidates, index) => Math.min(overrides[index] ?? preferredIndex(hanText, index, candidates), candidates.length - 1));
+
+  // 韻腳驅動的多音選擇：若句號類標點前的字，預設讀音不在多數韻腳所屬的宋詞部，
+  // 而另一個候選讀音在，就改選該候選並寫明依據。只在至少三個韻腳
+  // 可押同部、且改選後同部韻腳確實增加時生效；人工覆寫永遠優先。
+  const slots = [...rhymeSlotsOf(text, true)].filter((index) => index < characters.length);
+  const support = new Map<string, number>();
+  for (const index of slots) {
+    for (const name of new Set(candidateSets[index].map(partName).filter(Boolean) as string[])) {
+      support.set(name, (support.get(name) ?? 0) + 1);
+    }
+  }
+  const [dominant, count] = [...support.entries()].sort((a, b) => b[1] - a[1])[0] ?? [null, 0];
+  const defaultCount = slots.filter((index) => partName(candidateSets[index][chosen[index]]) === dominant).length;
+  if (dominant && count >= 3 && count > defaultCount) {
+    for (const index of slots) {
+      if (overrides[index] !== undefined || partName(candidateSets[index][chosen[index]]) === dominant) continue;
+      const better = candidateSets[index].findIndex((reading) => partName(reading) === dominant);
+      if (better < 0) continue;
+      chosen[index] = better;
+      const reading = candidateSets[index][better];
+      candidateSets[index][better] = { ...reading, evidence: `${reading.evidence}【韻腳推定】本字有多個讀音；因本作其他韻腳多屬宋詞${dominant}部，改選此讀以合韻，仍需按文意校核。` };
+    }
+  }
+  return candidateSets.map((candidates, index) => candidates[chosen[index]]);
 }
 
 export function prosodyOf(reading: Reading) {
   const category = (reading.position.match(/(平|上|去|入)$/)?.[1] ?? '待考') as ToneCategory | '待考';
   const family = reading.rime ? rhymeFamilies.find((entry) => entry.rimes.includes(reading.rime!)) : undefined;
   const pingshui = category === '待考' ? null : family?.labels[category] ?? null;
+  const songCi = category === '待考' ? null : songCiPartOf(reading.rime, category, reading.openness);
   return {
     category,
+    songCiPart: songCi ? `${songCi.name}部` : null,
+    songCiNote: songCi?.note ?? null,
     level: category === '平' ? '平' : category === '待考' ? '？' : '仄',
     sourceRhyme: reading.sourceRhyme,
     pingshui,

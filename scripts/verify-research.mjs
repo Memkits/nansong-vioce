@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { prosodyOf, readingsFor } from '../app/lib/phonology.ts';
+import { prosodyOf, readingsFor, rhymeSlotsOf } from '../app/lib/phonology.ts';
 import { RESEARCH_SAMPLE_RATE, RESEARCH_VOICE_VERSION, renderResearchVoice, researchTonePitch, waveBlob } from '../app/lib/synth.ts';
 import { gapAfterReadingMs, leadingPunctuationPauseMs, punctuationTiming } from '../app/lib/timing.ts';
 process.on('uncaughtException', (error) => {
@@ -126,3 +126,31 @@ for (const character of ['巴', '都', '家', '搭', '發', '格']) {
 }
 
 console.log(`research verification passed: ${readings.length} syllables, ${(first.length / RESEARCH_SAMPLE_RATE).toFixed(2)} s, peak ${peak.toFixed(3)}, roughness ${relativeRoughness.toFixed(3)}, stops ${labialCentroid.toFixed(0)}/${velarCentroid.toFixed(0)}/${alveolarCentroid.toFixed(0)} Hz`);
+
+// 宋詞通語 18 部：韻類粗分派與韻腳驅動多音選擇。
+{
+  const { songCiPartOf } = await import('../app/lib/phonology.ts');
+  const partOf = (text) => readingsFor(text, 'tongyu').map((reading) => prosodyOf(reading).songCiPart);
+  assert.deepEqual(partOf('元言先寒'), ['寒先部', '寒先部', '寒先部', '寒先部'], '元韻宋詞歸寒先，不隨平水元魂痕');
+  assert.deepEqual(partOf('佳畫家外泰'), ['皆來部', '家車部', '家車部', '支微部', '皆來部'], '佳／泰按開合分部');
+  assert.deepEqual(partOf('屋藥德緝合葉'), ['屋燭部', '鐸覺部', '德質部', '德質部', '月帖部', '月帖部']);
+  assert.deepEqual(partOf('蒸青昏真欣'), ['庚青部', '庚青部', '真文部', '真文部', '真文部']);
+  const allParts = new Set();
+  for (const [rimes, tones] of [['東冬鍾江陽唐支脂之微齊祭廢灰泰魚虞模皆咍夬佳麻真眞諄臻文欣殷魂痕元寒桓刪山先仙蕭宵肴豪歌戈庚耕清青蒸登尤侯幽侵覃談鹽添嚴咸銜凡', '平去'], ['東冬鍾江陽唐真眞諄臻文欣殷魂痕元寒桓刪山先仙庚耕清青蒸登侵覃談鹽添嚴咸銜凡', '入']]) {
+    for (const rime of rimes) for (const tone of tones) for (const openness of ['開', '合', null]) {
+      const part = songCiPartOf(rime, tone, openness);
+      assert.ok(part, `${rime}${tone}${openness} 未分派宋詞部`);
+      allParts.add(part.name);
+    }
+  }
+  assert.equal(allParts.size, 18, '宋詞通語應為 18 部');
+  // 李清照〈聲聲慢〉：識、積首條為去聲（標識、委積），韻腳應推定為入聲德質部。
+  const shengshengman = '尋尋覓覓，冷冷清清，淒淒慘慘戚戚。乍暖還寒時候，最難將息。三杯兩盞淡酒，怎敵他、晚來風急。雁過也，正傷心，卻是舊時相識。滿地黃花堆積，憔悴損，如今有誰堪摘。守著窗兒，獨自怎生得黑。梧桐更兼細雨，到黃昏、點點滴滴。這次第，怎一個愁字了得。';
+  const ssm = readingsFor(shengshengman, 'tongyu');
+  const finals = [...rhymeSlotsOf(shengshengman, true)].map((index) => ssm[index]);
+  assert.ok(finals.every((reading) => prosodyOf(reading).songCiPart === '德質部'), '聲聲慢韻腳應全屬德質部');
+  assert.ok(finals.find((reading) => reading.character === '識').evidence.includes('韻腳推定'));
+  // 人工覆寫優先於韻腳推定。
+  const shiIndex = [...rhymeSlotsOf(shengshengman, true)][3];
+  assert.ok(readingsFor(shengshengman, 'tongyu', { [shiIndex]: 0 })[shiIndex].position.endsWith('去'));
+}

@@ -87,7 +87,7 @@ export default function Home() {
   const dominantRhyme = useMemo(() => {
     const counts = new Map<string, number>();
     sentenceData.forEach((sentence) => {
-      const rhyme = sentence.prosody?.pingshui;
+      const rhyme = sentence.prosody?.songCiPart;
       if (rhyme) counts.set(rhyme, (counts.get(rhyme) ?? 0) + 1);
     });
     const winner = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0];
@@ -242,8 +242,8 @@ export default function Home() {
     </section>
 
     <section className="prosody-section" id="rhyme">
-      <div className="prosody-heading"><div><p className="eyebrow">RHYME FIRST</p><h2>先看断句与韵脚</h2><UnverifiedNotice area="押韵提示" className="inline-notice" /></div><p>当前同时显示《廣韻》原始韻目与《禮部韻略》—平水 106 韻参考层；它尚不是宋词通语约 18 部的作品级模型，不能据此裁决词牌、换韵或出韵。</p></div>
-      <div className="sentence-grid">{sentenceData.map((sentence, index) => <button key={`${sentence.chunk}-${index}`} className={selectedIndex === sentence.end ? 'sentence-card active' : 'sentence-card'} onClick={() => setSelected(sentence.end)}><span>第 {index + 1} 句{dominantRhyme && sentence.prosody?.pingshui === dominantRhyme ? ' · 与主韵同部' : dominantRhyme ? ' · 异于主韵' : ''}</span><b>{sentence.chunk}</b><div><code>{sentence.ending?.character ?? '—'} · {sentence.prosody?.pingshui ?? '官韵待考'}</code><i>《廣韻》{sentence.prosody?.sourceRhyme ?? '？'}韻 · {sentence.prosody?.level ?? '？'} · {sentence.prosody?.category ?? '待考'}{sentence.prosody?.entering ? ' · 入聲' : ''}</i></div></button>)}</div>
+      <div className="prosody-heading"><div><p className="eyebrow">RHYME FIRST</p><h2>先看断句与韵脚</h2><UnverifiedNotice area="押韵提示" className="inline-notice" /></div><p>主韵按宋词通语 18 部（鲁国尧概括：阴声 7、阳声 7、入声 4）的《廣韻》韵类粗分派判断，同时列出《廣韻》原始韻目与平水 106 韻参考层。部内例外、跨部字与通叶尚未逐首校验，不能据此裁决词牌、换韵或出韵。</p></div>
+      <div className="sentence-grid">{sentenceData.map((sentence, index) => <button key={`${sentence.chunk}-${index}`} className={selectedIndex === sentence.end ? 'sentence-card active' : 'sentence-card'} onClick={() => setSelected(sentence.end)}><span>第 {index + 1} 句{dominantRhyme && sentence.prosody?.songCiPart === dominantRhyme ? ' · 与主韵同部' : dominantRhyme ? ' · 异于主韵' : ''}</span><b>{sentence.chunk}</b><div><code>{sentence.ending?.character ?? '—'} · 宋词{sentence.prosody?.songCiPart ?? '韵部待考'}</code><i title={sentence.prosody?.songCiNote ?? undefined}>平水{sentence.prosody?.pingshui ?? '待考'} · 《廣韻》{sentence.prosody?.sourceRhyme ?? '？'}韻 · {sentence.prosody?.level ?? '？'} · {sentence.prosody?.category ?? '待考'}{sentence.prosody?.entering ? ' · 入聲' : ''}</i></div></button>)}</div>
     </section>
 
     <section className="analysis-section" id="phonology">
